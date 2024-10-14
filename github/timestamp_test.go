@@ -13,10 +13,11 @@ import (
 )
 
 const (
-	emptyTimeStr               = `"0001-01-01T00:00:00Z"`
-	referenceTimeStr           = `"2006-01-02T15:04:05Z"`
-	referenceTimeStrFractional = `"2006-01-02T15:04:05.000Z"` // This format was returned by the Projects API before October 1, 2017.
-	referenceUnixTimeStr       = `1136214245`
+	emptyTimeStr                     = `"0001-01-01T00:00:00Z"`
+	referenceTimeStr                 = `"2006-01-02T15:04:05Z"`
+	referenceTimeStrFractional       = `"2006-01-02T15:04:05.000Z"` // This format was returned by the Projects API before October 1, 2017.
+	referenceUnixTimeStr             = `1136214245`
+	referenceUnixTimeStrMilliSeconds = `1136214245000` // Millisecond-granular timestamps were introduced in the Audit log API.
 )
 
 var (
@@ -25,6 +26,7 @@ var (
 )
 
 func TestTimestamp_Marshal(t *testing.T) {
+	t.Parallel()
 	testCases := []struct {
 		desc    string
 		data    Timestamp
@@ -50,6 +52,7 @@ func TestTimestamp_Marshal(t *testing.T) {
 }
 
 func TestTimestamp_Unmarshal(t *testing.T) {
+	t.Parallel()
 	testCases := []struct {
 		desc    string
 		data    string
@@ -59,12 +62,14 @@ func TestTimestamp_Unmarshal(t *testing.T) {
 	}{
 		{"Reference", referenceTimeStr, Timestamp{referenceTime}, false, true},
 		{"ReferenceUnix", referenceUnixTimeStr, Timestamp{referenceTime}, false, true},
+		{"ReferenceUnixMillisecond", referenceUnixTimeStrMilliSeconds, Timestamp{referenceTime}, false, true},
 		{"ReferenceFractional", referenceTimeStrFractional, Timestamp{referenceTime}, false, true},
 		{"Empty", emptyTimeStr, Timestamp{}, false, true},
 		{"UnixStart", `0`, Timestamp{unixOrigin}, false, true},
 		{"Mismatch", referenceTimeStr, Timestamp{}, false, false},
 		{"MismatchUnix", `0`, Timestamp{}, false, false},
 		{"Invalid", `"asdf"`, Timestamp{referenceTime}, true, false},
+		{"OffByMillisecond", `1136214245001`, Timestamp{referenceTime}, false, false},
 	}
 	for _, tc := range testCases {
 		var got Timestamp
@@ -80,7 +85,8 @@ func TestTimestamp_Unmarshal(t *testing.T) {
 	}
 }
 
-func TestTimstamp_MarshalReflexivity(t *testing.T) {
+func TestTimestamp_MarshalReflexivity(t *testing.T) {
+	t.Parallel()
 	testCases := []struct {
 		desc string
 		data Timestamp
@@ -109,7 +115,8 @@ type WrappedTimestamp struct {
 	Time Timestamp
 }
 
-func TestWrappedTimstamp_Marshal(t *testing.T) {
+func TestWrappedTimestamp_Marshal(t *testing.T) {
+	t.Parallel()
 	testCases := []struct {
 		desc    string
 		data    WrappedTimestamp
@@ -134,7 +141,8 @@ func TestWrappedTimstamp_Marshal(t *testing.T) {
 	}
 }
 
-func TestWrappedTimstamp_Unmarshal(t *testing.T) {
+func TestWrappedTimestamp_Unmarshal(t *testing.T) {
+	t.Parallel()
 	testCases := []struct {
 		desc    string
 		data    string
@@ -144,11 +152,13 @@ func TestWrappedTimstamp_Unmarshal(t *testing.T) {
 	}{
 		{"Reference", referenceTimeStr, WrappedTimestamp{0, Timestamp{referenceTime}}, false, true},
 		{"ReferenceUnix", referenceUnixTimeStr, WrappedTimestamp{0, Timestamp{referenceTime}}, false, true},
+		{"ReferenceUnixMillisecond", referenceUnixTimeStrMilliSeconds, WrappedTimestamp{0, Timestamp{referenceTime}}, false, true},
 		{"Empty", emptyTimeStr, WrappedTimestamp{0, Timestamp{}}, false, true},
 		{"UnixStart", `0`, WrappedTimestamp{0, Timestamp{unixOrigin}}, false, true},
 		{"Mismatch", referenceTimeStr, WrappedTimestamp{0, Timestamp{}}, false, false},
 		{"MismatchUnix", `0`, WrappedTimestamp{0, Timestamp{}}, false, false},
 		{"Invalid", `"asdf"`, WrappedTimestamp{0, Timestamp{referenceTime}}, true, false},
+		{"OffByMillisecond", `1136214245001`, WrappedTimestamp{0, Timestamp{referenceTime}}, false, false},
 	}
 	for _, tc := range testCases {
 		var got Timestamp
@@ -164,7 +174,20 @@ func TestWrappedTimstamp_Unmarshal(t *testing.T) {
 	}
 }
 
-func TestWrappedTimstamp_MarshalReflexivity(t *testing.T) {
+func TestTimestamp_GetTime(t *testing.T) {
+	t.Parallel()
+	var t1 *Timestamp
+	if t1.GetTime() != nil {
+		t.Errorf("nil timestamp should return nil, got: %v", t1.GetTime())
+	}
+	t1 = &Timestamp{referenceTime}
+	if !t1.GetTime().Equal(referenceTime) {
+		t.Errorf("want reference time, got: %s", t1.GetTime().String())
+	}
+}
+
+func TestWrappedTimestamp_MarshalReflexivity(t *testing.T) {
+	t.Parallel()
 	testCases := []struct {
 		desc string
 		data WrappedTimestamp

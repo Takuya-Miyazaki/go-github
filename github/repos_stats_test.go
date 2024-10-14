@@ -9,14 +9,15 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"reflect"
 	"testing"
 	"time"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 func TestRepositoriesService_ListContributorsStats(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/repos/o/r/stats/contributors", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "GET")
@@ -42,7 +43,8 @@ func TestRepositoriesService_ListContributorsStats(t *testing.T) {
 `)
 	})
 
-	stats, _, err := client.Repositories.ListContributorsStats(context.Background(), "o", "r")
+	ctx := context.Background()
+	stats, _, err := client.Repositories.ListContributorsStats(ctx, "o", "r")
 	if err != nil {
 		t.Errorf("RepositoriesService.ListContributorsStats returned error: %v", err)
 	}
@@ -65,14 +67,28 @@ func TestRepositoriesService_ListContributorsStats(t *testing.T) {
 		},
 	}
 
-	if !reflect.DeepEqual(stats, want) {
+	if !cmp.Equal(stats, want) {
 		t.Errorf("RepositoriesService.ListContributorsStats returned %+v, want %+v", stats, want)
 	}
+
+	const methodName = "ListContributorsStats"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.Repositories.ListContributorsStats(ctx, "\n", "\n")
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Repositories.ListContributorsStats(ctx, "o", "r")
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestRepositoriesService_ListCommitActivity(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/repos/o/r/stats/commit_activity", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "GET")
@@ -88,7 +104,8 @@ func TestRepositoriesService_ListCommitActivity(t *testing.T) {
 `)
 	})
 
-	activity, _, err := client.Repositories.ListCommitActivity(context.Background(), "o", "r")
+	ctx := context.Background()
+	activity, _, err := client.Repositories.ListCommitActivity(ctx, "o", "r")
 	if err != nil {
 		t.Errorf("RepositoriesService.ListCommitActivity returned error: %v", err)
 	}
@@ -101,14 +118,28 @@ func TestRepositoriesService_ListCommitActivity(t *testing.T) {
 		},
 	}
 
-	if !reflect.DeepEqual(activity, want) {
+	if !cmp.Equal(activity, want) {
 		t.Errorf("RepositoriesService.ListCommitActivity returned %+v, want %+v", activity, want)
 	}
+
+	const methodName = "ListCommitActivity"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.Repositories.ListCommitActivity(ctx, "\n", "\n")
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Repositories.ListCommitActivity(ctx, "o", "r")
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestRepositoriesService_ListCodeFrequency(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/repos/o/r/stats/code_frequency", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "GET")
@@ -116,7 +147,8 @@ func TestRepositoriesService_ListCodeFrequency(t *testing.T) {
 		fmt.Fprint(w, `[[1302998400, 1124, -435]]`)
 	})
 
-	code, _, err := client.Repositories.ListCodeFrequency(context.Background(), "o", "r")
+	ctx := context.Background()
+	code, _, err := client.Repositories.ListCodeFrequency(ctx, "o", "r")
 	if err != nil {
 		t.Errorf("RepositoriesService.ListCodeFrequency returned error: %v", err)
 	}
@@ -127,14 +159,28 @@ func TestRepositoriesService_ListCodeFrequency(t *testing.T) {
 		Deletions: Int(-435),
 	}}
 
-	if !reflect.DeepEqual(code, want) {
+	if !cmp.Equal(code, want) {
 		t.Errorf("RepositoriesService.ListCodeFrequency returned %+v, want %+v", code, want)
 	}
+
+	const methodName = "ListCodeFrequency"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.Repositories.ListCodeFrequency(ctx, "\n", "\n")
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Repositories.ListCodeFrequency(ctx, "o", "r")
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestRepositoriesService_Participation(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/repos/o/r/stats/participation", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "GET")
@@ -157,7 +203,8 @@ func TestRepositoriesService_Participation(t *testing.T) {
 `)
 	})
 
-	participation, _, err := client.Repositories.ListParticipation(context.Background(), "o", "r")
+	ctx := context.Background()
+	participation, _, err := client.Repositories.ListParticipation(ctx, "o", "r")
 	if err != nil {
 		t.Errorf("RepositoriesService.ListParticipation returned error: %v", err)
 	}
@@ -177,14 +224,28 @@ func TestRepositoriesService_Participation(t *testing.T) {
 		},
 	}
 
-	if !reflect.DeepEqual(participation, want) {
+	if !cmp.Equal(participation, want) {
 		t.Errorf("RepositoriesService.ListParticipation returned %+v, want %+v", participation, want)
 	}
+
+	const methodName = "ListParticipation"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.Repositories.ListParticipation(ctx, "\n", "\n")
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Repositories.ListParticipation(ctx, "o", "r")
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestRepositoriesService_ListPunchCard(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/repos/o/r/stats/punch_card", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "GET")
@@ -196,7 +257,8 @@ func TestRepositoriesService_ListPunchCard(t *testing.T) {
 		]`)
 	})
 
-	card, _, err := client.Repositories.ListPunchCard(context.Background(), "o", "r")
+	ctx := context.Background()
+	card, _, err := client.Repositories.ListPunchCard(ctx, "o", "r")
 	if err != nil {
 		t.Errorf("RepositoriesService.ListPunchCard returned error: %v", err)
 	}
@@ -207,14 +269,28 @@ func TestRepositoriesService_ListPunchCard(t *testing.T) {
 		{Day: Int(0), Hour: Int(2), Commits: Int(21)},
 	}
 
-	if !reflect.DeepEqual(card, want) {
+	if !cmp.Equal(card, want) {
 		t.Errorf("RepositoriesService.ListPunchCard returned %+v, want %+v", card, want)
 	}
+
+	const methodName = "ListPunchCard"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.Repositories.ListPunchCard(ctx, "\n", "\n")
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Repositories.ListPunchCard(ctx, "o", "r")
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestRepositoriesService_AcceptedError(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/repos/o/r/stats/contributors", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "GET")
@@ -223,7 +299,8 @@ func TestRepositoriesService_AcceptedError(t *testing.T) {
 		fmt.Fprint(w, `{"id":1}`)
 	})
 
-	stats, _, err := client.Repositories.ListContributorsStats(context.Background(), "o", "r")
+	ctx := context.Background()
+	stats, _, err := client.Repositories.ListContributorsStats(ctx, "o", "r")
 	if err == nil {
 		t.Errorf("RepositoriesService.AcceptedError should have returned an error")
 	}
@@ -235,4 +312,112 @@ func TestRepositoriesService_AcceptedError(t *testing.T) {
 	if stats != nil {
 		t.Errorf("RepositoriesService.AcceptedError expected stats to be nil: %v", stats)
 	}
+
+	const methodName = "ListContributorsStats"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.Repositories.ListContributorsStats(ctx, "o", "r")
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Repositories.ListContributorsStats(ctx, "o", "r")
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
+}
+
+func TestRepositoryParticipation_Marshal(t *testing.T) {
+	t.Parallel()
+	testJSONMarshal(t, &RepositoryParticipation{}, "{}")
+
+	u := &RepositoryParticipation{
+		All:   []int{1},
+		Owner: []int{1},
+	}
+
+	want := `{
+		"all": [1],
+		"owner": [1]
+	}`
+
+	testJSONMarshal(t, u, want)
+}
+
+func TestWeeklyCommitActivity_Marshal(t *testing.T) {
+	t.Parallel()
+	testJSONMarshal(t, &WeeklyCommitActivity{}, "{}")
+
+	u := &WeeklyCommitActivity{
+		Days:  []int{1},
+		Total: Int(1),
+		Week:  &Timestamp{referenceTime},
+	}
+
+	want := `{
+		"days": [
+			1
+		],
+		"total": 1,
+		"week": ` + referenceTimeStr + `
+	}`
+
+	testJSONMarshal(t, u, want)
+}
+
+func TestWeeklyStats_Marshal(t *testing.T) {
+	t.Parallel()
+	testJSONMarshal(t, &WeeklyStats{}, "{}")
+
+	u := &WeeklyStats{
+		Week:      &Timestamp{referenceTime},
+		Additions: Int(1),
+		Deletions: Int(1),
+		Commits:   Int(1),
+	}
+
+	want := `{
+		"w": ` + referenceTimeStr + `,
+		"a": 1,
+		"d": 1,
+		"c": 1
+	}`
+
+	testJSONMarshal(t, u, want)
+}
+
+func TestContributorStats_Marshal(t *testing.T) {
+	t.Parallel()
+	testJSONMarshal(t, &ContributorStats{}, "{}")
+
+	u := &ContributorStats{
+		Author: &Contributor{ID: Int64(1)},
+		Total:  Int(1),
+		Weeks: []*WeeklyStats{
+			{
+				Week:      &Timestamp{referenceTime},
+				Additions: Int(1),
+				Deletions: Int(1),
+				Commits:   Int(1),
+			},
+		},
+	}
+
+	want := `{
+		"author": {
+			"id": 1
+		},
+		"total": 1,
+		"weeks": [
+			{
+				"w": ` + referenceTimeStr + `,
+				"a": 1,
+				"d": 1,
+				"c": 1
+			}
+		]
+	}`
+
+	testJSONMarshal(t, u, want)
 }

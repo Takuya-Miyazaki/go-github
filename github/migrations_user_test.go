@@ -9,21 +9,22 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 func TestMigrationService_StartUserMigration(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/user/migrations", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "POST")
 		testHeader(t, r, "Accept", mediaTypeMigrationsPreview)
 
 		w.WriteHeader(http.StatusCreated)
-		w.Write(userMigrationJSON)
+		assertWrite(t, w, userMigrationJSON)
 	})
 
 	opt := &UserMigrationOptions{
@@ -31,66 +32,96 @@ func TestMigrationService_StartUserMigration(t *testing.T) {
 		ExcludeAttachments: false,
 	}
 
-	got, _, err := client.Migrations.StartUserMigration(context.Background(), []string{"r"}, opt)
+	ctx := context.Background()
+	got, _, err := client.Migrations.StartUserMigration(ctx, []string{"r"}, opt)
 	if err != nil {
 		t.Errorf("StartUserMigration returned error: %v", err)
 	}
 
 	want := wantUserMigration
-	if !reflect.DeepEqual(want, got) {
+	if !cmp.Equal(want, got) {
 		t.Errorf("StartUserMigration = %v, want = %v", got, want)
 	}
+
+	const methodName = "StartUserMigration"
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Migrations.StartUserMigration(ctx, []string{"r"}, opt)
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestMigrationService_ListUserMigrations(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/user/migrations", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "GET")
 		testHeader(t, r, "Accept", mediaTypeMigrationsPreview)
 
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(fmt.Sprintf("[%s]", userMigrationJSON)))
+		assertWrite(t, w, []byte(fmt.Sprintf("[%s]", userMigrationJSON)))
 	})
 
-	got, _, err := client.Migrations.ListUserMigrations(context.Background())
+	ctx := context.Background()
+	got, _, err := client.Migrations.ListUserMigrations(ctx, &ListOptions{Page: 1, PerPage: 2})
 	if err != nil {
 		t.Errorf("ListUserMigrations returned error %v", err)
 	}
 
 	want := []*UserMigration{wantUserMigration}
-	if !reflect.DeepEqual(want, got) {
+	if !cmp.Equal(want, got) {
 		t.Errorf("ListUserMigrations = %v, want = %v", got, want)
 	}
+
+	const methodName = "ListUserMigrations"
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Migrations.ListUserMigrations(ctx, &ListOptions{Page: 1, PerPage: 2})
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestMigrationService_UserMigrationStatus(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/user/migrations/1", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "GET")
 		testHeader(t, r, "Accept", mediaTypeMigrationsPreview)
 
 		w.WriteHeader(http.StatusOK)
-		w.Write(userMigrationJSON)
+		assertWrite(t, w, userMigrationJSON)
 	})
 
-	got, _, err := client.Migrations.UserMigrationStatus(context.Background(), 1)
+	ctx := context.Background()
+	got, _, err := client.Migrations.UserMigrationStatus(ctx, 1)
 	if err != nil {
 		t.Errorf("UserMigrationStatus returned error %v", err)
 	}
 
 	want := wantUserMigration
-	if !reflect.DeepEqual(want, got) {
+	if !cmp.Equal(want, got) {
 		t.Errorf("UserMigrationStatus = %v, want = %v", got, want)
 	}
+
+	const methodName = "UserMigrationStatus"
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Migrations.UserMigrationStatus(ctx, 1)
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestMigrationService_UserMigrationArchiveURL(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/user/migrations/1/archive", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "GET")
@@ -105,7 +136,8 @@ func TestMigrationService_UserMigrationArchiveURL(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	got, err := client.Migrations.UserMigrationArchiveURL(context.Background(), 1)
+	ctx := context.Background()
+	got, err := client.Migrations.UserMigrationArchiveURL(ctx, 1)
 	if err != nil {
 		t.Errorf("UserMigrationArchiveURL returned error %v", err)
 	}
@@ -117,8 +149,8 @@ func TestMigrationService_UserMigrationArchiveURL(t *testing.T) {
 }
 
 func TestMigrationService_DeleteUserMigration(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/user/migrations/1/archive", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "DELETE")
@@ -127,7 +159,8 @@ func TestMigrationService_DeleteUserMigration(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	got, err := client.Migrations.DeleteUserMigration(context.Background(), 1)
+	ctx := context.Background()
+	got, err := client.Migrations.DeleteUserMigration(ctx, 1)
 	if err != nil {
 		t.Errorf("DeleteUserMigration returned error %v", err)
 	}
@@ -135,11 +168,21 @@ func TestMigrationService_DeleteUserMigration(t *testing.T) {
 	if got.StatusCode != http.StatusNoContent {
 		t.Errorf("DeleteUserMigration returned status = %v, want = %v", got.StatusCode, http.StatusNoContent)
 	}
+
+	const methodName = "DeleteUserMigration"
+	testBadOptions(t, methodName, func() (err error) {
+		_, err = client.Migrations.DeleteUserMigration(ctx, -1)
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		return client.Migrations.DeleteUserMigration(ctx, 1)
+	})
 }
 
 func TestMigrationService_UnlockUserRepo(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/user/migrations/1/repos/r/lock", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "DELETE")
@@ -148,7 +191,8 @@ func TestMigrationService_UnlockUserRepo(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	got, err := client.Migrations.UnlockUserRepo(context.Background(), 1, "r")
+	ctx := context.Background()
+	got, err := client.Migrations.UnlockUserRepo(ctx, 1, "r")
 	if err != nil {
 		t.Errorf("UnlockUserRepo returned error %v", err)
 	}
@@ -156,6 +200,16 @@ func TestMigrationService_UnlockUserRepo(t *testing.T) {
 	if got.StatusCode != http.StatusNoContent {
 		t.Errorf("UnlockUserRepo returned status = %v, want = %v", got.StatusCode, http.StatusNoContent)
 	}
+
+	const methodName = "UnlockUserRepo"
+	testBadOptions(t, methodName, func() (err error) {
+		_, err = client.Migrations.UnlockUserRepo(ctx, -1, "\n")
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		return client.Migrations.UnlockUserRepo(ctx, 1, "r")
+	})
 }
 
 var userMigrationJSON = []byte(`{
@@ -194,4 +248,60 @@ var wantUserMigration = &UserMigration{
 			Description: String("This your first repo!"),
 		},
 	},
+}
+
+func TestUserMigration_Marshal(t *testing.T) {
+	t.Parallel()
+	testJSONMarshal(t, &UserMigration{}, "{}")
+
+	u := &UserMigration{
+		ID:                 Int64(1),
+		GUID:               String("guid"),
+		State:              String("state"),
+		LockRepositories:   Bool(false),
+		ExcludeAttachments: Bool(false),
+		URL:                String("url"),
+		CreatedAt:          String("ca"),
+		UpdatedAt:          String("ua"),
+		Repositories:       []*Repository{{ID: Int64(1)}},
+	}
+
+	want := `{
+		"id": 1,
+		"guid": "guid",
+		"state": "state",
+		"lock_repositories": false,
+		"exclude_attachments": false,
+		"url": "url",
+		"created_at": "ca",
+		"updated_at": "ua",
+		"repositories": [
+			{
+				"id": 1
+			}
+		]
+	}`
+
+	testJSONMarshal(t, u, want)
+}
+
+func TestStartUserMigration_Marshal(t *testing.T) {
+	t.Parallel()
+	testJSONMarshal(t, &startUserMigration{}, "{}")
+
+	u := &startUserMigration{
+		Repositories:       []string{"r"},
+		LockRepositories:   Bool(false),
+		ExcludeAttachments: Bool(false),
+	}
+
+	want := `{
+		"repositories": [
+			"r"
+		],
+		"lock_repositories": false,
+		"exclude_attachments": false
+	}`
+
+	testJSONMarshal(t, u, want)
 }

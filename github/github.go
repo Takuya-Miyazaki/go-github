@@ -5,6 +5,7 @@
 
 //go:generate go run gen-accessors.go
 //go:generate go run gen-stringify-test.go
+//go:generate ../script/metadata.sh update-go
 
 package github
 
@@ -15,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"reflect"
@@ -28,14 +28,21 @@ import (
 )
 
 const (
-	defaultBaseURL = "https://api.github.com/"
-	uploadBaseURL  = "https://uploads.github.com/"
-	userAgent      = "go-github"
+	Version = "v66.0.0"
 
+	defaultAPIVersion = "2022-11-28"
+	defaultBaseURL    = "https://api.github.com/"
+	defaultUserAgent  = "go-github" + "/" + Version
+	uploadBaseURL     = "https://uploads.github.com/"
+
+	headerAPIVersion    = "X-GitHub-Api-Version"
 	headerRateLimit     = "X-RateLimit-Limit"
 	headerRateRemaining = "X-RateLimit-Remaining"
 	headerRateReset     = "X-RateLimit-Reset"
 	headerOTP           = "X-GitHub-OTP"
+	headerRetryAfter    = "Retry-After"
+
+	headerTokenExpiration = "GitHub-Authentication-Token-Expiration"
 
 	mediaTypeV3                = "application/vnd.github.v3+json"
 	defaultMediaType           = "application/octet-stream"
@@ -46,6 +53,21 @@ const (
 	mediaTypeIssueImportAPI    = "application/vnd.github.golden-comet-preview+json"
 
 	// Media Type values to access preview APIs
+	// These media types will be added to the API request as headers
+	// and used to enable particular features on GitHub API that are still in preview.
+	// After some time, specific media types will be promoted (to a "stable" state).
+	// From then on, the preview headers are not required anymore to activate the additional
+	// feature on GitHub.com's API. However, this API header might still be needed for users
+	// to run a GitHub Enterprise Server on-premise.
+	// It's not uncommon for GitHub Enterprise Server customers to run older versions which
+	// would probably rely on the preview headers for some time.
+	// While the header promotion is going out for GitHub.com, it may be some time before it
+	// even arrives in GitHub Enterprise Server.
+	// We keep those preview headers around to avoid breaking older GitHub Enterprise Server
+	// versions. Additionally, non-functional (preview) headers don't create any side effects
+	// on GitHub Cloud version.
+	//
+	// See https://github.com/google/go-github/pull/2125 for full context.
 
 	// https://developer.github.com/changes/2014-12-09-new-attributes-for-stars-api/
 	mediaTypeStarringPreview = "application/vnd.github.v3.star+json"
@@ -73,9 +95,6 @@ const (
 
 	// https://developer.github.com/changes/2017-02-28-user-blocking-apis-and-webhook/
 	mediaTypeBlockUsersPreview = "application/vnd.github.giant-sentry-fist-preview+json"
-
-	// https://developer.github.com/changes/2017-02-09-community-health/
-	mediaTypeRepositoryCommunityHealthMetricsPreview = "application/vnd.github.black-panther-preview+json"
 
 	// https://developer.github.com/changes/2017-05-23-coc-api/
 	mediaTypeCodesOfConductPreview = "application/vnd.github.scarlet-witch-preview+json"
@@ -107,19 +126,16 @@ const (
 	// https://developer.github.com/changes/2019-04-24-vulnerability-alerts/
 	mediaTypeRequiredVulnerabilityAlertsPreview = "application/vnd.github.dorian-preview+json"
 
-	// https://developer.github.com/changes/2019-06-04-automated-security-fixes/
-	mediaTypeRequiredAutomatedSecurityFixesPreview = "application/vnd.github.london-preview+json"
-
 	// https://developer.github.com/changes/2019-05-29-update-branch-api/
 	mediaTypeUpdatePullRequestBranchPreview = "application/vnd.github.lydian-preview+json"
 
 	// https://developer.github.com/changes/2019-04-11-pulls-branches-for-commit/
 	mediaTypeListPullsOrBranchesForCommitPreview = "application/vnd.github.groot-preview+json"
 
-	// https://docs.github.com/en/rest/reference/previews/#repository-creation-permissions
+	// https://docs.github.com/rest/previews/#repository-creation-permissions
 	mediaTypeMemberAllowedRepoCreationTypePreview = "application/vnd.github.surtur-preview+json"
 
-	// https://docs.github.com/en/rest/reference/previews/#create-and-use-repository-templates
+	// https://docs.github.com/rest/previews/#create-and-use-repository-templates
 	mediaTypeRepositoryTemplatePreview = "application/vnd.github.baptiste-preview+json"
 
 	// https://developer.github.com/changes/2019-10-03-multi-line-comments/
@@ -134,6 +150,8 @@ const (
 	// https://developer.github.com/changes/2018-12-10-content-attachments-api/
 	mediaTypeContentAttachmentsPreview = "application/vnd.github.corsair-preview+json"
 )
+
+var errNonNilContext = errors.New("context must be non-nil")
 
 // A Client manages communication with the GitHub API.
 type Client struct {
@@ -151,40 +169,65 @@ type Client struct {
 	// User agent used when communicating with the GitHub API.
 	UserAgent string
 
-	rateMu     sync.Mutex
-	rateLimits [categories]Rate // Rate limits for the client as determined by the most recent API calls.
+	rateMu                  sync.Mutex
+	rateLimits              [Categories]Rate // Rate limits for the client as determined by the most recent API calls.
+	secondaryRateLimitReset time.Time        // Secondary rate limit reset for the client as determined by the most recent API calls.
 
 	common service // Reuse a single struct instead of allocating one for each service on the heap.
 
 	// Services used for talking to different parts of the GitHub API.
-	Actions        *ActionsService
-	Activity       *ActivityService
-	Admin          *AdminService
-	Apps           *AppsService
-	Authorizations *AuthorizationsService
-	Checks         *ChecksService
-	CodeScanning   *CodeScanningService
-	Gists          *GistsService
-	Git            *GitService
-	Gitignores     *GitignoresService
-	Interactions   *InteractionsService
-	IssueImport    *IssueImportService
-	Issues         *IssuesService
-	Licenses       *LicensesService
-	Marketplace    *MarketplaceService
-	Migrations     *MigrationService
-	Organizations  *OrganizationsService
-	Projects       *ProjectsService
-	PullRequests   *PullRequestsService
-	Reactions      *ReactionsService
-	Repositories   *RepositoriesService
-	Search         *SearchService
-	Teams          *TeamsService
-	Users          *UsersService
+	Actions            *ActionsService
+	Activity           *ActivityService
+	Admin              *AdminService
+	Apps               *AppsService
+	Authorizations     *AuthorizationsService
+	Billing            *BillingService
+	Checks             *ChecksService
+	CodeScanning       *CodeScanningService
+	CodesOfConduct     *CodesOfConductService
+	Codespaces         *CodespacesService
+	Copilot            *CopilotService
+	Dependabot         *DependabotService
+	DependencyGraph    *DependencyGraphService
+	Emojis             *EmojisService
+	Enterprise         *EnterpriseService
+	Gists              *GistsService
+	Git                *GitService
+	Gitignores         *GitignoresService
+	Interactions       *InteractionsService
+	IssueImport        *IssueImportService
+	Issues             *IssuesService
+	Licenses           *LicensesService
+	Markdown           *MarkdownService
+	Marketplace        *MarketplaceService
+	Meta               *MetaService
+	Migrations         *MigrationService
+	Organizations      *OrganizationsService
+	Projects           *ProjectsService
+	PullRequests       *PullRequestsService
+	RateLimit          *RateLimitService
+	Reactions          *ReactionsService
+	Repositories       *RepositoriesService
+	SCIM               *SCIMService
+	Search             *SearchService
+	SecretScanning     *SecretScanningService
+	SecurityAdvisories *SecurityAdvisoriesService
+	Teams              *TeamsService
+	Users              *UsersService
 }
 
 type service struct {
 	client *Client
+}
+
+// Client returns the http.Client used by this GitHub client.
+// This should only be used for requests to the GitHub API because
+// request headers will contain an authorization token.
+func (c *Client) Client() *http.Client {
+	c.clientMu.Lock()
+	defer c.clientMu.Unlock()
+	clientCopy := *c.client
+	return &clientCopy
 }
 
 // ListOptions specifies the optional parameters to various List methods that
@@ -205,6 +248,23 @@ type ListCursorOptions struct {
 
 	// For paginated result sets, the number of results to include per page.
 	PerPage int `url:"per_page,omitempty"`
+
+	// For paginated result sets, the number of results per page (max 100), starting from the first matching result.
+	// This parameter must not be used in combination with last.
+	First int `url:"first,omitempty"`
+
+	// For paginated result sets, the number of results per page (max 100), starting from the last matching result.
+	// This parameter must not be used in combination with first.
+	Last int `url:"last,omitempty"`
+
+	// A cursor, as given in the Link header. If specified, the query only searches for events after this cursor.
+	After string `url:"after,omitempty"`
+
+	// A cursor, as given in the Link header. If specified, the query only searches for events before this cursor.
+	Before string `url:"before,omitempty"`
+
+	// A cursor, as given in the Link header. If specified, the query continues the search using this cursor.
+	Cursor string `url:"cursor,omitempty"`
 }
 
 // UploadOptions specifies the parameters to methods that support uploads.
@@ -254,24 +314,112 @@ func addOptions(s string, opts interface{}) (string, error) {
 
 // NewClient returns a new GitHub API client. If a nil httpClient is
 // provided, a new http.Client will be used. To use API methods which require
-// authentication, provide an http.Client that will perform the authentication
-// for you (such as that provided by the golang.org/x/oauth2 library).
+// authentication, either use Client.WithAuthToken or provide NewClient with
+// an http.Client that will perform the authentication for you (such as that
+// provided by the golang.org/x/oauth2 library).
 func NewClient(httpClient *http.Client) *Client {
 	if httpClient == nil {
 		httpClient = &http.Client{}
 	}
-	baseURL, _ := url.Parse(defaultBaseURL)
-	uploadURL, _ := url.Parse(uploadBaseURL)
+	httpClient2 := *httpClient
+	c := &Client{client: &httpClient2}
+	c.initialize()
+	return c
+}
 
-	c := &Client{client: httpClient, BaseURL: baseURL, UserAgent: userAgent, UploadURL: uploadURL}
+// WithAuthToken returns a copy of the client configured to use the provided token for the Authorization header.
+func (c *Client) WithAuthToken(token string) *Client {
+	c2 := c.copy()
+	defer c2.initialize()
+	transport := c2.client.Transport
+	if transport == nil {
+		transport = http.DefaultTransport
+	}
+	c2.client.Transport = roundTripperFunc(
+		func(req *http.Request) (*http.Response, error) {
+			req = req.Clone(req.Context())
+			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
+			return transport.RoundTrip(req)
+		},
+	)
+	return c2
+}
+
+// WithEnterpriseURLs returns a copy of the client configured to use the provided base and
+// upload URLs. If the base URL does not have the suffix "/api/v3/", it will be added
+// automatically. If the upload URL does not have the suffix "/api/uploads", it will be
+// added automatically.
+//
+// Note that WithEnterpriseURLs is a convenience helper only;
+// its behavior is equivalent to setting the BaseURL and UploadURL fields.
+//
+// Another important thing is that by default, the GitHub Enterprise URL format
+// should be http(s)://[hostname]/api/v3/ or you will always receive the 406 status code.
+// The upload URL format should be http(s)://[hostname]/api/uploads/.
+func (c *Client) WithEnterpriseURLs(baseURL, uploadURL string) (*Client, error) {
+	c2 := c.copy()
+	defer c2.initialize()
+	var err error
+	c2.BaseURL, err = url.Parse(baseURL)
+	if err != nil {
+		return nil, err
+	}
+
+	if !strings.HasSuffix(c2.BaseURL.Path, "/") {
+		c2.BaseURL.Path += "/"
+	}
+	if !strings.HasSuffix(c2.BaseURL.Path, "/api/v3/") &&
+		!strings.HasPrefix(c2.BaseURL.Host, "api.") &&
+		!strings.Contains(c2.BaseURL.Host, ".api.") {
+		c2.BaseURL.Path += "api/v3/"
+	}
+
+	c2.UploadURL, err = url.Parse(uploadURL)
+	if err != nil {
+		return nil, err
+	}
+
+	if !strings.HasSuffix(c2.UploadURL.Path, "/") {
+		c2.UploadURL.Path += "/"
+	}
+	if !strings.HasSuffix(c2.UploadURL.Path, "/api/uploads/") &&
+		!strings.HasPrefix(c2.UploadURL.Host, "api.") &&
+		!strings.Contains(c2.UploadURL.Host, ".api.") {
+		c2.UploadURL.Path += "api/uploads/"
+	}
+	return c2, nil
+}
+
+// initialize sets default values and initializes services.
+func (c *Client) initialize() {
+	if c.client == nil {
+		c.client = &http.Client{}
+	}
+	if c.BaseURL == nil {
+		c.BaseURL, _ = url.Parse(defaultBaseURL)
+	}
+	if c.UploadURL == nil {
+		c.UploadURL, _ = url.Parse(uploadBaseURL)
+	}
+	if c.UserAgent == "" {
+		c.UserAgent = defaultUserAgent
+	}
 	c.common.client = c
 	c.Actions = (*ActionsService)(&c.common)
 	c.Activity = (*ActivityService)(&c.common)
 	c.Admin = (*AdminService)(&c.common)
 	c.Apps = (*AppsService)(&c.common)
 	c.Authorizations = (*AuthorizationsService)(&c.common)
+	c.Billing = (*BillingService)(&c.common)
 	c.Checks = (*ChecksService)(&c.common)
 	c.CodeScanning = (*CodeScanningService)(&c.common)
+	c.Codespaces = (*CodespacesService)(&c.common)
+	c.CodesOfConduct = (*CodesOfConductService)(&c.common)
+	c.Copilot = (*CopilotService)(&c.common)
+	c.Dependabot = (*DependabotService)(&c.common)
+	c.DependencyGraph = (*DependencyGraphService)(&c.common)
+	c.Emojis = (*EmojisService)(&c.common)
+	c.Enterprise = (*EnterpriseService)(&c.common)
 	c.Gists = (*GistsService)(&c.common)
 	c.Git = (*GitService)(&c.common)
 	c.Gitignores = (*GitignoresService)(&c.common)
@@ -279,63 +427,78 @@ func NewClient(httpClient *http.Client) *Client {
 	c.IssueImport = (*IssueImportService)(&c.common)
 	c.Issues = (*IssuesService)(&c.common)
 	c.Licenses = (*LicensesService)(&c.common)
+	c.Markdown = (*MarkdownService)(&c.common)
 	c.Marketplace = &MarketplaceService{client: c}
+	c.Meta = (*MetaService)(&c.common)
 	c.Migrations = (*MigrationService)(&c.common)
 	c.Organizations = (*OrganizationsService)(&c.common)
 	c.Projects = (*ProjectsService)(&c.common)
 	c.PullRequests = (*PullRequestsService)(&c.common)
+	c.RateLimit = (*RateLimitService)(&c.common)
 	c.Reactions = (*ReactionsService)(&c.common)
 	c.Repositories = (*RepositoriesService)(&c.common)
+	c.SCIM = (*SCIMService)(&c.common)
 	c.Search = (*SearchService)(&c.common)
+	c.SecretScanning = (*SecretScanningService)(&c.common)
+	c.SecurityAdvisories = (*SecurityAdvisoriesService)(&c.common)
 	c.Teams = (*TeamsService)(&c.common)
 	c.Users = (*UsersService)(&c.common)
-	return c
+}
+
+// copy returns a copy of the current client. It must be initialized before use.
+func (c *Client) copy() *Client {
+	c.clientMu.Lock()
+	// can't use *c here because that would copy mutexes by value.
+	clone := Client{
+		client:                  &http.Client{},
+		UserAgent:               c.UserAgent,
+		BaseURL:                 c.BaseURL,
+		UploadURL:               c.UploadURL,
+		secondaryRateLimitReset: c.secondaryRateLimitReset,
+	}
+	c.clientMu.Unlock()
+	if c.client != nil {
+		clone.client.Transport = c.client.Transport
+		clone.client.CheckRedirect = c.client.CheckRedirect
+		clone.client.Jar = c.client.Jar
+		clone.client.Timeout = c.client.Timeout
+	}
+	c.rateMu.Lock()
+	copy(clone.rateLimits[:], c.rateLimits[:])
+	c.rateMu.Unlock()
+	return &clone
+}
+
+// NewClientWithEnvProxy enhances NewClient with the HttpProxy env.
+func NewClientWithEnvProxy() *Client {
+	return NewClient(&http.Client{Transport: &http.Transport{Proxy: http.ProxyFromEnvironment}})
+}
+
+// NewTokenClient returns a new GitHub API client authenticated with the provided token.
+// Deprecated: Use NewClient(nil).WithAuthToken(token) instead.
+func NewTokenClient(_ context.Context, token string) *Client {
+	// This always returns a nil error.
+	return NewClient(nil).WithAuthToken(token)
 }
 
 // NewEnterpriseClient returns a new GitHub API client with provided
 // base URL and upload URL (often is your GitHub Enterprise hostname).
-// If the base URL does not have the suffix "/api/v3/", it will be added automatically.
-// If the upload URL does not have the suffix "/api/uploads", it will be added automatically.
-// If a nil httpClient is provided, a new http.Client will be used.
 //
-// Note that NewEnterpriseClient is a convenience helper only;
-// its behavior is equivalent to using NewClient, followed by setting
-// the BaseURL and UploadURL fields.
-//
-// Another important thing is that by default, the GitHub Enterprise URL format
-// should be http(s)://[hostname]/api/v3/ or you will always receive the 406 status code.
-// The upload URL format should be http(s)://[hostname]/api/uploads/.
+// Deprecated: Use NewClient(httpClient).WithEnterpriseURLs(baseURL, uploadURL) instead.
 func NewEnterpriseClient(baseURL, uploadURL string, httpClient *http.Client) (*Client, error) {
-	baseEndpoint, err := url.Parse(baseURL)
-	if err != nil {
-		return nil, err
-	}
-	if !strings.HasSuffix(baseEndpoint.Path, "/") {
-		baseEndpoint.Path += "/"
-	}
-	if !strings.HasSuffix(baseEndpoint.Path, "/api/v3/") &&
-		!strings.HasPrefix(baseEndpoint.Host, "api.") &&
-		!strings.Contains(baseEndpoint.Host, ".api.") {
-		baseEndpoint.Path += "api/v3/"
-	}
+	return NewClient(httpClient).WithEnterpriseURLs(baseURL, uploadURL)
+}
 
-	uploadEndpoint, err := url.Parse(uploadURL)
-	if err != nil {
-		return nil, err
-	}
-	if !strings.HasSuffix(uploadEndpoint.Path, "/") {
-		uploadEndpoint.Path += "/"
-	}
-	if !strings.HasSuffix(uploadEndpoint.Path, "/api/uploads/") &&
-		!strings.HasPrefix(uploadEndpoint.Host, "api.") &&
-		!strings.Contains(uploadEndpoint.Host, ".api.") {
-		uploadEndpoint.Path += "api/uploads/"
-	}
+// RequestOption represents an option that can modify an http.Request.
+type RequestOption func(req *http.Request)
 
-	c := NewClient(httpClient)
-	c.BaseURL = baseEndpoint
-	c.UploadURL = uploadEndpoint
-	return c, nil
+// WithVersion overrides the GitHub v3 API version for this individual request.
+// For more information, see:
+// https://github.blog/2022-11-28-to-infinity-and-beyond-enabling-the-future-of-githubs-rest-api-with-api-versioning/
+func WithVersion(version string) RequestOption {
+	return func(req *http.Request) {
+		req.Header.Set(headerAPIVersion, version)
+	}
 }
 
 // NewRequest creates an API request. A relative URL can be provided in urlStr,
@@ -343,10 +506,11 @@ func NewEnterpriseClient(baseURL, uploadURL string, httpClient *http.Client) (*C
 // Relative URLs should always be specified without a preceding slash. If
 // specified, the value pointed to by body is JSON encoded and included as the
 // request body.
-func (c *Client) NewRequest(method, urlStr string, body interface{}) (*http.Request, error) {
+func (c *Client) NewRequest(method, urlStr string, body interface{}, opts ...RequestOption) (*http.Request, error) {
 	if !strings.HasSuffix(c.BaseURL.Path, "/") {
 		return nil, fmt.Errorf("BaseURL must have a trailing slash, but %q does not", c.BaseURL)
 	}
+
 	u, err := c.BaseURL.Parse(urlStr)
 	if err != nil {
 		return nil, err
@@ -375,13 +539,52 @@ func (c *Client) NewRequest(method, urlStr string, body interface{}) (*http.Requ
 	if c.UserAgent != "" {
 		req.Header.Set("User-Agent", c.UserAgent)
 	}
+	req.Header.Set(headerAPIVersion, defaultAPIVersion)
+
+	for _, opt := range opts {
+		opt(req)
+	}
+
+	return req, nil
+}
+
+// NewFormRequest creates an API request. A relative URL can be provided in urlStr,
+// in which case it is resolved relative to the BaseURL of the Client.
+// Relative URLs should always be specified without a preceding slash.
+// Body is sent with Content-Type: application/x-www-form-urlencoded.
+func (c *Client) NewFormRequest(urlStr string, body io.Reader, opts ...RequestOption) (*http.Request, error) {
+	if !strings.HasSuffix(c.BaseURL.Path, "/") {
+		return nil, fmt.Errorf("BaseURL must have a trailing slash, but %q does not", c.BaseURL)
+	}
+
+	u, err := c.BaseURL.Parse(urlStr)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, u.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", mediaTypeV3)
+	if c.UserAgent != "" {
+		req.Header.Set("User-Agent", c.UserAgent)
+	}
+	req.Header.Set(headerAPIVersion, defaultAPIVersion)
+
+	for _, opt := range opts {
+		opt(req)
+	}
+
 	return req, nil
 }
 
 // NewUploadRequest creates an upload request. A relative URL can be provided in
 // urlStr, in which case it is resolved relative to the UploadURL of the Client.
 // Relative URLs should always be specified without a preceding slash.
-func (c *Client) NewUploadRequest(urlStr string, reader io.Reader, size int64, mediaType string) (*http.Request, error) {
+func (c *Client) NewUploadRequest(urlStr string, reader io.Reader, size int64, mediaType string, opts ...RequestOption) (*http.Request, error) {
 	if !strings.HasSuffix(c.UploadURL.Path, "/") {
 		return nil, fmt.Errorf("UploadURL must have a trailing slash, but %q does not", c.UploadURL)
 	}
@@ -394,6 +597,7 @@ func (c *Client) NewUploadRequest(urlStr string, reader io.Reader, size int64, m
 	if err != nil {
 		return nil, err
 	}
+
 	req.ContentLength = size
 
 	if mediaType == "" {
@@ -402,6 +606,12 @@ func (c *Client) NewUploadRequest(urlStr string, reader io.Reader, size int64, m
 	req.Header.Set("Content-Type", mediaType)
 	req.Header.Set("Accept", mediaTypeV3)
 	req.Header.Set("User-Agent", c.UserAgent)
+	req.Header.Set(headerAPIVersion, defaultAPIVersion)
+
+	for _, opt := range opts {
+		opt(req)
+	}
+
 	return req, nil
 }
 
@@ -436,9 +646,22 @@ type Response struct {
 	// calling the endpoint again.
 	NextPageToken string
 
+	// For APIs that support cursor pagination, such as RepositoriesService.ListHookDeliveries,
+	// the following field will be populated to point to the next page.
+	// Set ListCursorOptions.Cursor to this value when calling the endpoint again.
+	Cursor string
+
+	// For APIs that support before/after pagination, such as OrganizationsService.AuditLog.
+	Before string
+	After  string
+
 	// Explicitly specify the Rate type so Rate's String() receiver doesn't
 	// propagate to Response.
 	Rate Rate
+
+	// token's expiration date. Timestamp is 0001-01-01 when token doesn't expire.
+	// So it is valid for TokenExpiration.Equal(Timestamp{}) or TokenExpiration.Time.After(time.Now())
+	TokenExpiration Timestamp
 }
 
 // newResponse creates a new Response for the provided http.Response.
@@ -447,6 +670,7 @@ func newResponse(r *http.Response) *Response {
 	response := &Response{Response: r}
 	response.populatePageValues()
 	response.Rate = parseRate(r)
+	response.TokenExpiration = parseTokenExpiration(r)
 	return response
 }
 
@@ -472,9 +696,31 @@ func (r *Response) populatePageValues() {
 			if err != nil {
 				continue
 			}
-			page := url.Query().Get("page")
-			if page == "" {
+
+			q := url.Query()
+
+			if cursor := q.Get("cursor"); cursor != "" {
+				for _, segment := range segments[1:] {
+					switch strings.TrimSpace(segment) {
+					case `rel="next"`:
+						r.Cursor = cursor
+					}
+				}
+
 				continue
+			}
+
+			page := q.Get("page")
+			since := q.Get("since")
+			before := q.Get("before")
+			after := q.Get("after")
+
+			if page == "" && before == "" && after == "" && since == "" {
+				continue
+			}
+
+			if since != "" && page == "" {
+				page = since
 			}
 
 			for _, segment := range segments[1:] {
@@ -483,14 +729,15 @@ func (r *Response) populatePageValues() {
 					if r.NextPage, err = strconv.Atoi(page); err != nil {
 						r.NextPageToken = page
 					}
+					r.After = after
 				case `rel="prev"`:
 					r.PrevPage, _ = strconv.Atoi(page)
+					r.Before = before
 				case `rel="first"`:
 					r.FirstPage, _ = strconv.Atoi(page)
 				case `rel="last"`:
 					r.LastPage, _ = strconv.Atoi(page)
 				}
-
 			}
 		}
 	}
@@ -513,29 +760,84 @@ func parseRate(r *http.Response) Rate {
 	return rate
 }
 
-// Do sends an API request and returns the API response. The API response is
-// JSON decoded and stored in the value pointed to by v, or returned as an
-// error if an API error has occurred. If v implements the io.Writer
-// interface, the raw response body will be written to v, without attempting to
-// first decode it. If rate limit is exceeded and reset time is in the future,
-// Do returns *RateLimitError immediately without making a network API call.
-//
-// The provided ctx must be non-nil, if it is nil an error is returned. If it is canceled or times out,
-// ctx.Err() will be returned.
-func (c *Client) Do(ctx context.Context, req *http.Request, v interface{}) (*Response, error) {
-	if ctx == nil {
-		return nil, errors.New("context must be non-nil")
+// parseSecondaryRate parses the secondary rate related headers,
+// and returns the time to retry after.
+func parseSecondaryRate(r *http.Response) *time.Duration {
+	// According to GitHub support, the "Retry-After" header value will be
+	// an integer which represents the number of seconds that one should
+	// wait before resuming making requests.
+	if v := r.Header.Get(headerRetryAfter); v != "" {
+		retryAfterSeconds, _ := strconv.ParseInt(v, 10, 64) // Error handling is noop.
+		retryAfter := time.Duration(retryAfterSeconds) * time.Second
+		return &retryAfter
 	}
+
+	// According to GitHub support, endpoints might return x-ratelimit-reset instead,
+	// as an integer which represents the number of seconds since epoch UTC,
+	// representing the time to resume making requests.
+	if v := r.Header.Get(headerRateReset); v != "" {
+		secondsSinceEpoch, _ := strconv.ParseInt(v, 10, 64) // Error handling is noop.
+		retryAfter := time.Until(time.Unix(secondsSinceEpoch, 0))
+		return &retryAfter
+	}
+
+	return nil
+}
+
+// parseTokenExpiration parses the TokenExpiration related headers.
+// Returns 0001-01-01 if the header is not defined or could not be parsed.
+func parseTokenExpiration(r *http.Response) Timestamp {
+	if v := r.Header.Get(headerTokenExpiration); v != "" {
+		if t, err := time.Parse("2006-01-02 15:04:05 MST", v); err == nil {
+			return Timestamp{t.Local()}
+		}
+		// Some tokens include the timezone offset instead of the timezone.
+		// https://github.com/google/go-github/issues/2649
+		if t, err := time.Parse("2006-01-02 15:04:05 -0700", v); err == nil {
+			return Timestamp{t.Local()}
+		}
+	}
+	return Timestamp{} // 0001-01-01 00:00:00
+}
+
+type requestContext uint8
+
+const (
+	bypassRateLimitCheck requestContext = iota
+	SleepUntilPrimaryRateLimitResetWhenRateLimited
+)
+
+// BareDo sends an API request and lets you handle the api response. If an error
+// or API Error occurs, the error will contain more information. Otherwise you
+// are supposed to read and close the response's Body. If rate limit is exceeded
+// and reset time is in the future, BareDo returns *RateLimitError immediately
+// without making a network API call.
+//
+// The provided ctx must be non-nil, if it is nil an error is returned. If it is
+// canceled or times out, ctx.Err() will be returned.
+func (c *Client) BareDo(ctx context.Context, req *http.Request) (*Response, error) {
+	if ctx == nil {
+		return nil, errNonNilContext
+	}
+
 	req = withContext(ctx, req)
 
-	rateLimitCategory := category(req.URL.Path)
+	rateLimitCategory := GetRateLimitCategory(req.Method, req.URL.Path)
 
-	// If we've hit rate limit, don't make further requests before Reset time.
-	if err := c.checkRateLimitBeforeDo(req, rateLimitCategory); err != nil {
-		return &Response{
-			Response: err.Response,
-			Rate:     err.Rate,
-		}, err
+	if bypass := ctx.Value(bypassRateLimitCheck); bypass == nil {
+		// If we've hit rate limit, don't make further requests before Reset time.
+		if err := c.checkRateLimitBeforeDo(req, rateLimitCategory); err != nil {
+			return &Response{
+				Response: err.Response,
+				Rate:     err.Rate,
+			}, err
+		}
+		// If we've hit a secondary rate limit, don't make further requests before Retry After.
+		if err := c.checkSecondaryRateLimitBeforeDo(req); err != nil {
+			return &Response{
+				Response: err.Response,
+			}, err
+		}
 	}
 
 	resp, err := c.client.Do(req)
@@ -559,29 +861,19 @@ func (c *Client) Do(ctx context.Context, req *http.Request, v interface{}) (*Res
 		return nil, err
 	}
 
-	defer func() {
-		// Ensure the response body is fully read and closed
-		// before we reconnect, so that we reuse the same TCP connection.
-		// Close the previous response's body. But read at least some of
-		// the body so if it's small the underlying TCP connection will be
-		// re-used. No need to check for errors: if it fails, the Transport
-		// won't reuse it anyway.
-		const maxBodySlurpSize = 2 << 10
-		if resp.ContentLength == -1 || resp.ContentLength <= maxBodySlurpSize {
-			io.CopyN(ioutil.Discard, resp.Body, maxBodySlurpSize)
-		}
-
-		resp.Body.Close()
-	}()
-
 	response := newResponse(resp)
 
-	c.rateMu.Lock()
-	c.rateLimits[rateLimitCategory] = response.Rate
-	c.rateMu.Unlock()
+	// Don't update the rate limits if this was a cached response.
+	// X-From-Cache is set by https://github.com/gregjones/httpcache
+	if response.Header.Get("X-From-Cache") == "" {
+		c.rateMu.Lock()
+		c.rateLimits[rateLimitCategory] = response.Rate
+		c.rateMu.Unlock()
+	}
 
 	err = CheckResponse(resp)
 	if err != nil {
+		defer resp.Body.Close()
 		// Special case for AcceptedErrors. If an AcceptedError
 		// has been encountered, the response's payload will be
 		// added to the AcceptedError and returned.
@@ -589,40 +881,73 @@ func (c *Client) Do(ctx context.Context, req *http.Request, v interface{}) (*Res
 		// Issue #1022
 		aerr, ok := err.(*AcceptedError)
 		if ok {
-			b, readErr := ioutil.ReadAll(resp.Body)
+			b, readErr := io.ReadAll(resp.Body)
 			if readErr != nil {
 				return response, readErr
 			}
 
 			aerr.Raw = b
-			return response, aerr
+			err = aerr
 		}
 
-		return response, err
-	}
+		rateLimitError, ok := err.(*RateLimitError)
+		if ok && req.Context().Value(SleepUntilPrimaryRateLimitResetWhenRateLimited) != nil {
+			if err := sleepUntilResetWithBuffer(req.Context(), rateLimitError.Rate.Reset.Time); err != nil {
+				return response, err
+			}
+			// retry the request once when the rate limit has reset
+			return c.BareDo(context.WithValue(req.Context(), SleepUntilPrimaryRateLimitResetWhenRateLimited, nil), req)
+		}
 
-	if v != nil {
-		if w, ok := v.(io.Writer); ok {
-			io.Copy(w, resp.Body)
-		} else {
-			decErr := json.NewDecoder(resp.Body).Decode(v)
-			if decErr == io.EOF {
-				decErr = nil // ignore EOF errors caused by empty response body
-			}
-			if decErr != nil {
-				err = decErr
-			}
+		// Update the secondary rate limit if we hit it.
+		rerr, ok := err.(*AbuseRateLimitError)
+		if ok && rerr.RetryAfter != nil {
+			c.rateMu.Lock()
+			c.secondaryRateLimitReset = time.Now().Add(*rerr.RetryAfter)
+			c.rateMu.Unlock()
 		}
 	}
-
 	return response, err
+}
+
+// Do sends an API request and returns the API response. The API response is
+// JSON decoded and stored in the value pointed to by v, or returned as an
+// error if an API error has occurred. If v implements the io.Writer interface,
+// the raw response body will be written to v, without attempting to first
+// decode it. If v is nil, and no error happens, the response is returned as is.
+// If rate limit is exceeded and reset time is in the future, Do returns
+// *RateLimitError immediately without making a network API call.
+//
+// The provided ctx must be non-nil, if it is nil an error is returned. If it
+// is canceled or times out, ctx.Err() will be returned.
+func (c *Client) Do(ctx context.Context, req *http.Request, v interface{}) (*Response, error) {
+	resp, err := c.BareDo(ctx, req)
+	if err != nil {
+		return resp, err
+	}
+	defer resp.Body.Close()
+
+	switch v := v.(type) {
+	case nil:
+	case io.Writer:
+		_, err = io.Copy(v, resp.Body)
+	default:
+		decErr := json.NewDecoder(resp.Body).Decode(v)
+		if decErr == io.EOF {
+			decErr = nil // ignore EOF errors caused by empty response body
+		}
+		if decErr != nil {
+			err = decErr
+		}
+	}
+	return resp, err
 }
 
 // checkRateLimitBeforeDo does not make any network calls, but uses existing knowledge from
 // current client state in order to quickly check if *RateLimitError can be immediately returned
 // from Client.Do, and if so, returns it so that Client.Do can skip making a network API call unnecessarily.
 // Otherwise it returns nil, and Client.Do should proceed normally.
-func (c *Client) checkRateLimitBeforeDo(req *http.Request, rateLimitCategory rateLimitCategory) *RateLimitError {
+func (c *Client) checkRateLimitBeforeDo(req *http.Request, rateLimitCategory RateLimitCategory) *RateLimitError {
 	c.rateMu.Lock()
 	rate := c.rateLimits[rateLimitCategory]
 	c.rateMu.Unlock()
@@ -633,8 +958,20 @@ func (c *Client) checkRateLimitBeforeDo(req *http.Request, rateLimitCategory rat
 			StatusCode: http.StatusForbidden,
 			Request:    req,
 			Header:     make(http.Header),
-			Body:       ioutil.NopCloser(strings.NewReader("")),
+			Body:       io.NopCloser(strings.NewReader("")),
 		}
+
+		if req.Context().Value(SleepUntilPrimaryRateLimitResetWhenRateLimited) != nil {
+			if err := sleepUntilResetWithBuffer(req.Context(), rate.Reset.Time); err == nil {
+				return nil
+			}
+			return &RateLimitError{
+				Rate:     rate,
+				Response: resp,
+				Message:  fmt.Sprintf("Context cancelled while waiting for rate limit to reset until %v, not making remote request.", rate.Reset.Time),
+			}
+		}
+
 		return &RateLimitError{
 			Rate:     rate,
 			Response: resp,
@@ -645,32 +982,130 @@ func (c *Client) checkRateLimitBeforeDo(req *http.Request, rateLimitCategory rat
 	return nil
 }
 
+// checkSecondaryRateLimitBeforeDo does not make any network calls, but uses existing knowledge from
+// current client state in order to quickly check if *AbuseRateLimitError can be immediately returned
+// from Client.Do, and if so, returns it so that Client.Do can skip making a network API call unnecessarily.
+// Otherwise it returns nil, and Client.Do should proceed normally.
+func (c *Client) checkSecondaryRateLimitBeforeDo(req *http.Request) *AbuseRateLimitError {
+	c.rateMu.Lock()
+	secondary := c.secondaryRateLimitReset
+	c.rateMu.Unlock()
+	if !secondary.IsZero() && time.Now().Before(secondary) {
+		// Create a fake response.
+		resp := &http.Response{
+			Status:     http.StatusText(http.StatusForbidden),
+			StatusCode: http.StatusForbidden,
+			Request:    req,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader("")),
+		}
+
+		retryAfter := time.Until(secondary)
+		return &AbuseRateLimitError{
+			Response:   resp,
+			Message:    fmt.Sprintf("API secondary rate limit exceeded until %v, not making remote request.", secondary),
+			RetryAfter: &retryAfter,
+		}
+	}
+
+	return nil
+}
+
+// compareHTTPResponse returns whether two http.Response objects are equal or not.
+// Currently, only StatusCode is checked. This function is used when implementing the
+// Is(error) bool interface for the custom error types in this package.
+func compareHTTPResponse(r1, r2 *http.Response) bool {
+	if r1 == nil && r2 == nil {
+		return true
+	}
+
+	if r1 != nil && r2 != nil {
+		return r1.StatusCode == r2.StatusCode
+	}
+	return false
+}
+
 /*
 An ErrorResponse reports one or more errors caused by an API request.
 
-GitHub API docs: https://docs.github.com/en/rest/reference/#client-errors
+GitHub API docs: https://docs.github.com/rest/#client-errors
 */
 type ErrorResponse struct {
-	Response *http.Response // HTTP response that caused this error
+	Response *http.Response `json:"-"`       // HTTP response that caused this error
 	Message  string         `json:"message"` // error message
 	Errors   []Error        `json:"errors"`  // more detail on individual errors
 	// Block is only populated on certain types of errors such as code 451.
-	// See https://developer.github.com/changes/2016-03-17-the-451-status-code-is-now-supported/
-	// for more information.
-	Block *struct {
-		Reason    string     `json:"reason,omitempty"`
-		CreatedAt *Timestamp `json:"created_at,omitempty"`
-	} `json:"block,omitempty"`
+	Block *ErrorBlock `json:"block,omitempty"`
 	// Most errors will also include a documentation_url field pointing
 	// to some content that might help you resolve the error, see
-	// https://docs.github.com/en/rest/reference/#client-errors
+	// https://docs.github.com/rest/#client-errors
 	DocumentationURL string `json:"documentation_url,omitempty"`
 }
 
+// ErrorBlock contains a further explanation for the reason of an error.
+// See https://developer.github.com/changes/2016-03-17-the-451-status-code-is-now-supported/
+// for more information.
+type ErrorBlock struct {
+	Reason    string     `json:"reason,omitempty"`
+	CreatedAt *Timestamp `json:"created_at,omitempty"`
+}
+
 func (r *ErrorResponse) Error() string {
-	return fmt.Sprintf("%v %v: %d %v %+v",
-		r.Response.Request.Method, sanitizeURL(r.Response.Request.URL),
-		r.Response.StatusCode, r.Message, r.Errors)
+	if r.Response != nil && r.Response.Request != nil {
+		return fmt.Sprintf("%v %v: %d %v %+v",
+			r.Response.Request.Method, sanitizeURL(r.Response.Request.URL),
+			r.Response.StatusCode, r.Message, r.Errors)
+	}
+
+	if r.Response != nil {
+		return fmt.Sprintf("%d %v %+v", r.Response.StatusCode, r.Message, r.Errors)
+	}
+
+	return fmt.Sprintf("%v %+v", r.Message, r.Errors)
+}
+
+// Is returns whether the provided error equals this error.
+func (r *ErrorResponse) Is(target error) bool {
+	v, ok := target.(*ErrorResponse)
+	if !ok {
+		return false
+	}
+
+	if r.Message != v.Message || (r.DocumentationURL != v.DocumentationURL) ||
+		!compareHTTPResponse(r.Response, v.Response) {
+		return false
+	}
+
+	// Compare Errors.
+	if len(r.Errors) != len(v.Errors) {
+		return false
+	}
+	for idx := range r.Errors {
+		if r.Errors[idx] != v.Errors[idx] {
+			return false
+		}
+	}
+
+	// Compare Block.
+	if (r.Block != nil && v.Block == nil) || (r.Block == nil && v.Block != nil) {
+		return false
+	}
+	if r.Block != nil && v.Block != nil {
+		if r.Block.Reason != v.Block.Reason {
+			return false
+		}
+		if (r.Block.CreatedAt != nil && v.Block.CreatedAt == nil) || (r.Block.CreatedAt ==
+			nil && v.Block.CreatedAt != nil) {
+			return false
+		}
+		if r.Block.CreatedAt != nil && v.Block.CreatedAt != nil {
+			if *(r.Block.CreatedAt) != *(v.Block.CreatedAt) {
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 // TwoFactorAuthError occurs when using HTTP Basic Authentication for a user
@@ -694,6 +1129,18 @@ func (r *RateLimitError) Error() string {
 		r.Response.StatusCode, r.Message, formatRateReset(time.Until(r.Rate.Reset.Time)))
 }
 
+// Is returns whether the provided error equals this error.
+func (r *RateLimitError) Is(target error) bool {
+	v, ok := target.(*RateLimitError)
+	if !ok {
+		return false
+	}
+
+	return r.Rate == v.Rate &&
+		r.Message == v.Message &&
+		compareHTTPResponse(r.Response, v.Response)
+}
+
 // AcceptedError occurs when GitHub returns 202 Accepted response with an
 // empty body, which means a job was scheduled on the GitHub side to process
 // the information needed and cache it.
@@ -709,8 +1156,17 @@ func (*AcceptedError) Error() string {
 	return "job scheduled on GitHub side; try again later"
 }
 
+// Is returns whether the provided error equals this error.
+func (ae *AcceptedError) Is(target error) bool {
+	v, ok := target.(*AcceptedError)
+	if !ok {
+		return false
+	}
+	return bytes.Equal(ae.Raw, v.Raw)
+}
+
 // AbuseRateLimitError occurs when GitHub returns 403 Forbidden response with the
-// "documentation_url" field value equal to "https://docs.github.com/en/rest/reference/#abuse-rate-limits".
+// "documentation_url" field value equal to "https://docs.github.com/rest/overview/rate-limits-for-the-rest-api#about-secondary-rate-limits".
 type AbuseRateLimitError struct {
 	Response *http.Response // HTTP response that caused this error
 	Message  string         `json:"message"` // error message
@@ -725,6 +1181,18 @@ func (r *AbuseRateLimitError) Error() string {
 	return fmt.Sprintf("%v %v: %d %v",
 		r.Response.Request.Method, sanitizeURL(r.Response.Request.URL),
 		r.Response.StatusCode, r.Message)
+}
+
+// Is returns whether the provided error equals this error.
+func (r *AbuseRateLimitError) Is(target error) bool {
+	v, ok := target.(*AbuseRateLimitError)
+	if !ok {
+		return false
+	}
+
+	return r.Message == v.Message &&
+		r.RetryAfter == v.RetryAfter &&
+		compareHTTPResponse(r.Response, v.Response)
 }
 
 // sanitizeURL redacts the client_secret parameter from the URL which may be
@@ -745,23 +1213,23 @@ func sanitizeURL(uri *url.URL) *url.URL {
 An Error reports more details on an individual error in an ErrorResponse.
 These are the possible validation error codes:
 
-    missing:
-        resource does not exist
-    missing_field:
-        a required field on a resource has not been set
-    invalid:
-        the formatting of a field is invalid
-    already_exists:
-        another resource has the same valid as this field
-    custom:
-        some resources return this (e.g. github.User.CreateKey()), additional
-        information is set in the Message field of the Error
+	missing:
+	    resource does not exist
+	missing_field:
+	    a required field on a resource has not been set
+	invalid:
+	    the formatting of a field is invalid
+	already_exists:
+	    another resource has the same valid as this field
+	custom:
+	    some resources return this (e.g. github.User.CreateKey()), additional
+	    information is set in the Message field of the Error
 
 GitHub error responses structure are often undocumented and inconsistent.
 Sometimes error is just a simple string (Issue #540).
 In such cases, Message represents an error message as a workaround.
 
-GitHub API docs: https://docs.github.com/en/rest/reference/#client-errors
+GitHub API docs: https://docs.github.com/rest/#client-errors
 */
 type Error struct {
 	Resource string `json:"resource"` // resource on which the error occurred
@@ -799,15 +1267,20 @@ func CheckResponse(r *http.Response) error {
 	if c := r.StatusCode; 200 <= c && c <= 299 {
 		return nil
 	}
+
 	errorResponse := &ErrorResponse{Response: r}
-	data, err := ioutil.ReadAll(r.Body)
+	data, err := io.ReadAll(r.Body)
 	if err == nil && data != nil {
-		json.Unmarshal(data, errorResponse)
+		err = json.Unmarshal(data, errorResponse)
+		if err != nil {
+			// reset the response as if this never happened
+			errorResponse = &ErrorResponse{Response: r}
+		}
 	}
 	// Re-populate error response body because GitHub error responses are often
 	// undocumented and inconsistent.
 	// Issue #1136, #540.
-	r.Body = ioutil.NopCloser(bytes.NewBuffer(data))
+	r.Body = io.NopCloser(bytes.NewBuffer(data))
 	switch {
 	case r.StatusCode == http.StatusUnauthorized && strings.HasPrefix(r.Header.Get(headerOTP), "required"):
 		return (*TwoFactorAuthError)(errorResponse)
@@ -817,18 +1290,15 @@ func CheckResponse(r *http.Response) error {
 			Response: errorResponse.Response,
 			Message:  errorResponse.Message,
 		}
-	case r.StatusCode == http.StatusForbidden && strings.HasSuffix(errorResponse.DocumentationURL, "#abuse-rate-limits"):
+	case r.StatusCode == http.StatusForbidden &&
+		(strings.HasSuffix(errorResponse.DocumentationURL, "#abuse-rate-limits") ||
+			strings.HasSuffix(errorResponse.DocumentationURL, "secondary-rate-limits")):
 		abuseRateLimitError := &AbuseRateLimitError{
 			Response: errorResponse.Response,
 			Message:  errorResponse.Message,
 		}
-		if v := r.Header["Retry-After"]; len(v) > 0 {
-			// According to GitHub support, the "Retry-After" header value will be
-			// an integer which represents the number of seconds that one should
-			// wait before resuming making requests.
-			retryAfterSeconds, _ := strconv.ParseInt(v[0], 10, 64) // Error handling is noop.
-			retryAfter := time.Duration(retryAfterSeconds) * time.Second
-			abuseRateLimitError.RetryAfter = &retryAfter
+		if retryAfter := parseSecondaryRate(r); retryAfter != nil {
+			abuseRateLimitError.RetryAfter = retryAfter
 		}
 		return abuseRateLimitError
 	default:
@@ -855,89 +1325,78 @@ func parseBoolResponse(err error) (bool, error) {
 	return false, err
 }
 
-// Rate represents the rate limit for the current client.
-type Rate struct {
-	// The number of requests per hour the client is currently limited to.
-	Limit int `json:"limit"`
-
-	// The number of remaining requests the client can make this hour.
-	Remaining int `json:"remaining"`
-
-	// The time at which the current rate limit will reset.
-	Reset Timestamp `json:"reset"`
-}
-
-func (r Rate) String() string {
-	return Stringify(r)
-}
-
-// RateLimits represents the rate limits for the current client.
-type RateLimits struct {
-	// The rate limit for non-search API requests. Unauthenticated
-	// requests are limited to 60 per hour. Authenticated requests are
-	// limited to 5,000 per hour.
-	//
-	// GitHub API docs: https://docs.github.com/en/rest/reference/#rate-limiting
-	Core *Rate `json:"core"`
-
-	// The rate limit for search API requests. Unauthenticated requests
-	// are limited to 10 requests per minutes. Authenticated requests are
-	// limited to 30 per minute.
-	//
-	// GitHub API docs: https://docs.github.com/en/rest/reference/search/#rate-limit
-	Search *Rate `json:"search"`
-}
-
-func (r RateLimits) String() string {
-	return Stringify(r)
-}
-
-type rateLimitCategory uint8
+type RateLimitCategory uint8
 
 const (
-	coreCategory rateLimitCategory = iota
-	searchCategory
+	CoreCategory RateLimitCategory = iota
+	SearchCategory
+	GraphqlCategory
+	IntegrationManifestCategory
+	SourceImportCategory
+	CodeScanningUploadCategory
+	ActionsRunnerRegistrationCategory
+	ScimCategory
+	DependencySnapshotsCategory
+	CodeSearchCategory
+	AuditLogCategory
 
-	categories // An array of this length will be able to contain all rate limit categories.
+	Categories // An array of this length will be able to contain all rate limit categories.
 )
 
-// category returns the rate limit category of the endpoint, determined by Request.URL.Path.
-func category(path string) rateLimitCategory {
+// GetRateLimitCategory returns the rate limit RateLimitCategory of the endpoint, determined by HTTP method and Request.URL.Path.
+func GetRateLimitCategory(method, path string) RateLimitCategory {
 	switch {
+	// https://docs.github.com/rest/rate-limit#about-rate-limits
 	default:
-		return coreCategory
+		// NOTE: coreCategory is returned for actionsRunnerRegistrationCategory too,
+		// because no API found for this category.
+		return CoreCategory
+
+	// https://docs.github.com/en/rest/search/search#search-code
+	case strings.HasPrefix(path, "/search/code") &&
+		method == http.MethodGet:
+		return CodeSearchCategory
+
 	case strings.HasPrefix(path, "/search/"):
-		return searchCategory
+		return SearchCategory
+	case path == "/graphql":
+		return GraphqlCategory
+	case strings.HasPrefix(path, "/app-manifests/") &&
+		strings.HasSuffix(path, "/conversions") &&
+		method == http.MethodPost:
+		return IntegrationManifestCategory
+
+	// https://docs.github.com/rest/migrations/source-imports#start-an-import
+	case strings.HasPrefix(path, "/repos/") &&
+		strings.HasSuffix(path, "/import") &&
+		method == http.MethodPut:
+		return SourceImportCategory
+
+	// https://docs.github.com/rest/code-scanning#upload-an-analysis-as-sarif-data
+	case strings.HasSuffix(path, "/code-scanning/sarifs"):
+		return CodeScanningUploadCategory
+
+	// https://docs.github.com/enterprise-cloud@latest/rest/scim
+	case strings.HasPrefix(path, "/scim/"):
+		return ScimCategory
+
+	// https://docs.github.com/en/rest/dependency-graph/dependency-submission#create-a-snapshot-of-dependencies-for-a-repository
+	case strings.HasPrefix(path, "/repos/") &&
+		strings.HasSuffix(path, "/dependency-graph/snapshots") &&
+		method == http.MethodPost:
+		return DependencySnapshotsCategory
+
+	// https://docs.github.com/en/enterprise-cloud@latest/rest/orgs/orgs?apiVersion=2022-11-28#get-the-audit-log-for-an-organization
+	case strings.HasSuffix(path, "/audit-log"):
+		return AuditLogCategory
 	}
 }
 
 // RateLimits returns the rate limits for the current client.
+//
+// Deprecated: Use RateLimitService.Get instead.
 func (c *Client) RateLimits(ctx context.Context) (*RateLimits, *Response, error) {
-	req, err := c.NewRequest("GET", "rate_limit", nil)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	response := new(struct {
-		Resources *RateLimits `json:"resources"`
-	})
-	resp, err := c.Do(ctx, req, response)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	if response.Resources != nil {
-		c.rateMu.Lock()
-		if response.Resources.Core != nil {
-			c.rateLimits[coreCategory] = *response.Resources.Core
-		}
-		if response.Resources.Search != nil {
-			c.rateLimits[searchCategory] = *response.Resources.Search
-		}
-		c.rateMu.Unlock()
-	}
-
-	return response.Resources, resp, nil
+	return c.RateLimit.Get(ctx)
 }
 
 func setCredentialsAsHeaders(req *http.Request, id, secret string) *http.Request {
@@ -971,7 +1430,7 @@ that need to use a higher rate limit associated with your OAuth application.
 This will add the client id and secret as a base64-encoded string in the format
 ClientID:ClientSecret and apply it as an "Authorization": "Basic" header.
 
-See https://docs.github.com/en/rest/reference/#unauthenticated-rate-limited-requests for
+See https://docs.github.com/rest/#unauthenticated-rate-limited-requests for
 more information.
 */
 type UnauthenticatedRateLimitedTransport struct {
@@ -1077,6 +1536,49 @@ func formatRateReset(d time.Duration) string {
 	return fmt.Sprintf("[rate reset in %v]", timeString)
 }
 
+func sleepUntilResetWithBuffer(ctx context.Context, reset time.Time) error {
+	buffer := time.Second
+	timer := time.NewTimer(time.Until(reset) + buffer)
+	select {
+	case <-ctx.Done():
+		if !timer.Stop() {
+			<-timer.C
+		}
+		return ctx.Err()
+	case <-timer.C:
+	}
+	return nil
+}
+
+// When using roundTripWithOptionalFollowRedirect, note that it
+// is the responsibility of the caller to close the response body.
+func (c *Client) roundTripWithOptionalFollowRedirect(ctx context.Context, u string, maxRedirects int, opts ...RequestOption) (*http.Response, error) {
+	req, err := c.NewRequest("GET", u, nil, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp *http.Response
+	// Use http.DefaultTransport if no custom Transport is configured
+	req = withContext(ctx, req)
+	if c.client.Transport == nil {
+		resp, err = http.DefaultTransport.RoundTrip(req)
+	} else {
+		resp, err = c.client.Transport.RoundTrip(req)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// If redirect response is returned, follow it
+	if maxRedirects > 0 && resp.StatusCode == http.StatusMovedPermanently {
+		_ = resp.Body.Close()
+		u = resp.Header.Get("Location")
+		resp, err = c.roundTripWithOptionalFollowRedirect(ctx, u, maxRedirects-1, opts...)
+	}
+	return resp, err
+}
+
 // Bool is a helper routine that allocates a new bool value
 // to store v and returns a pointer to it.
 func Bool(v bool) *bool { return &v }
@@ -1092,3 +1594,10 @@ func Int64(v int64) *int64 { return &v }
 // String is a helper routine that allocates a new string value
 // to store v and returns a pointer to it.
 func String(v string) *string { return &v }
+
+// roundTripperFunc creates a RoundTripper (transport).
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return fn(r)
+}

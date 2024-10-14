@@ -9,14 +9,15 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"reflect"
 	"testing"
 	"time"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 func TestRepositoriesService_ListTrafficReferrers(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/repos/o/r/traffic/popular/referrers", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "GET")
@@ -37,41 +38,28 @@ func TestRepositoriesService_ListTrafficReferrers(t *testing.T) {
 		Count:    Int(4),
 		Uniques:  Int(3),
 	}}
-	if !reflect.DeepEqual(got, want) {
+	if !cmp.Equal(got, want) {
 		t.Errorf("Repositories.ListTrafficReferrers returned %+v, want %+v", got, want)
 	}
 
-	// Test s.client.NewRequest failure
-	client.BaseURL.Path = ""
-	got, resp, err := client.Repositories.ListTrafficReferrers(ctx, "o", "r")
-	if got != nil {
-		t.Errorf("client.BaseURL.Path='' ListTrafficReferrers = %#v, want nil", got)
-	}
-	if resp != nil {
-		t.Errorf("client.BaseURL.Path='' ListTrafficReferrers resp = %#v, want nil", resp)
-	}
-	if err == nil {
-		t.Error("client.BaseURL.Path='' ListTrafficReferrers err = nil, want error")
-	}
+	const methodName = "ListTrafficReferrers"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.Repositories.ListTrafficReferrers(ctx, "\n", "\n")
+		return err
+	})
 
-	// Test s.client.Do failure
-	client.BaseURL.Path = "/api-v3/"
-	client.rateLimits[0].Reset.Time = time.Now().Add(10 * time.Minute)
-	got, resp, err = client.Repositories.ListTrafficReferrers(ctx, "o", "r")
-	if got != nil {
-		t.Errorf("rate.Reset.Time > now ListTrafficReferrers = %#v, want nil", got)
-	}
-	if want := http.StatusForbidden; resp == nil || resp.Response.StatusCode != want {
-		t.Errorf("rate.Reset.Time > now ListTrafficReferrers resp = %#v, want StatusCode=%v", resp.Response, want)
-	}
-	if err == nil {
-		t.Error("rate.Reset.Time > now ListTrafficReferrers err = nil, want error")
-	}
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Repositories.ListTrafficReferrers(ctx, "o", "r")
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestRepositoriesService_ListTrafficPaths(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/repos/o/r/traffic/popular/paths", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "GET")
@@ -94,41 +82,28 @@ func TestRepositoriesService_ListTrafficPaths(t *testing.T) {
 		Count:   Int(3542),
 		Uniques: Int(2225),
 	}}
-	if !reflect.DeepEqual(got, want) {
+	if !cmp.Equal(got, want) {
 		t.Errorf("Repositories.ListTrafficPaths returned %+v, want %+v", got, want)
 	}
 
-	// Test s.client.NewRequest failure
-	client.BaseURL.Path = ""
-	got, resp, err := client.Repositories.ListTrafficPaths(ctx, "o", "r")
-	if got != nil {
-		t.Errorf("client.BaseURL.Path='' ListTrafficPaths = %#v, want nil", got)
-	}
-	if resp != nil {
-		t.Errorf("client.BaseURL.Path='' ListTrafficPaths resp = %#v, want nil", resp)
-	}
-	if err == nil {
-		t.Error("client.BaseURL.Path='' ListTrafficPaths err = nil, want error")
-	}
+	const methodName = "ListTrafficPaths"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.Repositories.ListTrafficPaths(ctx, "\n", "\n")
+		return err
+	})
 
-	// Test s.client.Do failure
-	client.BaseURL.Path = "/api-v3/"
-	client.rateLimits[0].Reset.Time = time.Now().Add(10 * time.Minute)
-	got, resp, err = client.Repositories.ListTrafficPaths(ctx, "o", "r")
-	if got != nil {
-		t.Errorf("rate.Reset.Time > now ListTrafficPaths = %#v, want nil", got)
-	}
-	if want := http.StatusForbidden; resp == nil || resp.Response.StatusCode != want {
-		t.Errorf("rate.Reset.Time > now ListTrafficPaths resp = %#v, want StatusCode=%v", resp.Response, want)
-	}
-	if err == nil {
-		t.Error("rate.Reset.Time > now ListTrafficPaths err = nil, want error")
-	}
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Repositories.ListTrafficPaths(ctx, "o", "r")
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestRepositoriesService_ListTrafficViews(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/repos/o/r/traffic/views", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "GET")
@@ -157,47 +132,28 @@ func TestRepositoriesService_ListTrafficViews(t *testing.T) {
 		Uniques: Int(6),
 	}
 
-	if !reflect.DeepEqual(got, want) {
+	if !cmp.Equal(got, want) {
 		t.Errorf("Repositories.ListTrafficViews returned %+v, want %+v", got, want)
 	}
 
-	// Test addOptions failure
-	_, _, err = client.Repositories.ListTrafficViews(ctx, "\n", "\n", &TrafficBreakdownOptions{})
-	if err == nil {
-		t.Error("bad options ListTrafficViews err = nil, want error")
-	}
+	const methodName = "ListTrafficViews"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.Repositories.ListTrafficViews(ctx, "\n", "\n", &TrafficBreakdownOptions{})
+		return err
+	})
 
-	// Test s.client.NewRequest failure
-	client.BaseURL.Path = ""
-	got, resp, err := client.Repositories.ListTrafficViews(ctx, "o", "r", nil)
-	if got != nil {
-		t.Errorf("client.BaseURL.Path='' ListTrafficViews = %#v, want nil", got)
-	}
-	if resp != nil {
-		t.Errorf("client.BaseURL.Path='' ListTrafficViews resp = %#v, want nil", resp)
-	}
-	if err == nil {
-		t.Error("client.BaseURL.Path='' ListTrafficViews err = nil, want error")
-	}
-
-	// Test s.client.Do failure
-	client.BaseURL.Path = "/api-v3/"
-	client.rateLimits[0].Reset.Time = time.Now().Add(10 * time.Minute)
-	got, resp, err = client.Repositories.ListTrafficViews(ctx, "o", "r", nil)
-	if got != nil {
-		t.Errorf("rate.Reset.Time > now ListTrafficViews = %#v, want nil", got)
-	}
-	if want := http.StatusForbidden; resp == nil || resp.Response.StatusCode != want {
-		t.Errorf("rate.Reset.Time > now ListTrafficViews resp = %#v, want StatusCode=%v", resp.Response, want)
-	}
-	if err == nil {
-		t.Error("rate.Reset.Time > now ListTrafficViews err = nil, want error")
-	}
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Repositories.ListTrafficViews(ctx, "o", "r", nil)
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestRepositoriesService_ListTrafficClones(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/repos/o/r/traffic/clones", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "GET")
@@ -226,40 +182,149 @@ func TestRepositoriesService_ListTrafficClones(t *testing.T) {
 		Uniques: Int(6),
 	}
 
-	if !reflect.DeepEqual(got, want) {
+	if !cmp.Equal(got, want) {
 		t.Errorf("Repositories.ListTrafficClones returned %+v, want %+v", got, want)
 	}
 
-	// Test addOptions failure
-	_, _, err = client.Repositories.ListTrafficClones(ctx, "\n", "\n", &TrafficBreakdownOptions{})
-	if err == nil {
-		t.Error("bad options ListTrafficViews err = nil, want error")
+	const methodName = "ListTrafficClones"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.Repositories.ListTrafficClones(ctx, "\n", "\n", &TrafficBreakdownOptions{})
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Repositories.ListTrafficClones(ctx, "o", "r", nil)
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
+}
+
+func TestTrafficReferrer_Marshal(t *testing.T) {
+	t.Parallel()
+	testJSONMarshal(t, &TrafficReferrer{}, "{}")
+
+	u := &TrafficReferrer{
+		Referrer: String("referrer"),
+		Count:    Int(0),
+		Uniques:  Int(0),
 	}
 
-	// Test s.client.NewRequest failure
-	client.BaseURL.Path = ""
-	got, resp, err := client.Repositories.ListTrafficClones(ctx, "o", "r", nil)
-	if got != nil {
-		t.Errorf("client.BaseURL.Path='' ListTrafficClones = %#v, want nil", got)
-	}
-	if resp != nil {
-		t.Errorf("client.BaseURL.Path='' ListTrafficClones resp = %#v, want nil", resp)
-	}
-	if err == nil {
-		t.Error("client.BaseURL.Path='' ListTrafficClones err = nil, want error")
+	want := `{
+		"referrer" : "referrer",
+		"count" : 0,
+		"uniques" : 0
+	}`
+
+	testJSONMarshal(t, u, want)
+}
+
+func TestTrafficViews_Marshal(t *testing.T) {
+	t.Parallel()
+	testJSONMarshal(t, &TrafficViews{}, "{}")
+
+	u := &TrafficViews{
+		Views: []*TrafficData{{
+			Timestamp: &Timestamp{time.Date(2016, time.May, 31, 16, 0, 0, 0, time.UTC)},
+			Count:     Int(7),
+			Uniques:   Int(6),
+		}},
+		Count:   Int(0),
+		Uniques: Int(0),
 	}
 
-	// Test s.client.Do failure
-	client.BaseURL.Path = "/api-v3/"
-	client.rateLimits[0].Reset.Time = time.Now().Add(10 * time.Minute)
-	got, resp, err = client.Repositories.ListTrafficClones(ctx, "o", "r", nil)
-	if got != nil {
-		t.Errorf("rate.Reset.Time > now ListTrafficClones = %#v, want nil", got)
+	want := `{
+		"views": [{
+			"timestamp": "2016-05-31T16:00:00.000Z",
+			"count": 7,
+			"uniques": 6
+		}],
+		"count" : 0,
+		"uniques" : 0
+	}`
+
+	testJSONMarshal(t, u, want)
+}
+
+func TestTrafficClones_Marshal(t *testing.T) {
+	t.Parallel()
+	testJSONMarshal(t, &TrafficClones{}, "{}")
+
+	u := &TrafficClones{
+		Clones: []*TrafficData{{
+			Timestamp: &Timestamp{time.Date(2021, time.October, 29, 16, 0, 0, 0, time.UTC)},
+			Count:     Int(1),
+			Uniques:   Int(1),
+		}},
+		Count:   Int(0),
+		Uniques: Int(0),
 	}
-	if want := http.StatusForbidden; resp == nil || resp.Response.StatusCode != want {
-		t.Errorf("rate.Reset.Time > now ListTrafficClones resp = %#v, want StatusCode=%v", resp.Response, want)
+
+	want := `{
+		"clones": [{
+			"timestamp": "2021-10-29T16:00:00.000Z",
+			"count": 1,
+			"uniques": 1
+		}],
+		"count" : 0,
+		"uniques" : 0
+	}`
+
+	testJSONMarshal(t, u, want)
+}
+
+func TestTrafficPath_Marshal(t *testing.T) {
+	t.Parallel()
+	testJSONMarshal(t, &TrafficPath{}, "{}")
+
+	u := &TrafficPath{
+		Path:    String("test/path"),
+		Title:   String("test"),
+		Count:   Int(2),
+		Uniques: Int(3),
 	}
-	if err == nil {
-		t.Error("rate.Reset.Time > now ListTrafficClones err = nil, want error")
+
+	want := `{
+		"path" : "test/path",
+		"title": "test",
+		"count": 2,
+		"uniques": 3
+	}`
+
+	testJSONMarshal(t, u, want)
+}
+
+func TestTrafficData_Marshal(t *testing.T) {
+	t.Parallel()
+	testJSONMarshal(t, &TrafficData{}, "{}")
+
+	u := &TrafficData{
+		Timestamp: &Timestamp{time.Date(2016, time.May, 31, 16, 0, 0, 0, time.UTC)},
+		Count:     Int(7),
+		Uniques:   Int(6),
 	}
+
+	want := `{
+			"timestamp": "2016-05-31T16:00:00.000Z",
+			"count": 7,
+			"uniques": 6
+      }`
+
+	testJSONMarshal(t, u, want)
+}
+
+func TestTrafficBreakdownOptions_Marshal(t *testing.T) {
+	t.Parallel()
+	testJSONMarshal(t, &TrafficBreakdownOptions{}, "{}")
+
+	u := &TrafficBreakdownOptions{
+		Per: "day",
+	}
+
+	want := `{
+		"per": "day"
+	}`
+
+	testJSONMarshal(t, u, want)
 }

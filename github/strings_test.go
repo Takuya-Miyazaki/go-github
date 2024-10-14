@@ -12,6 +12,7 @@ import (
 )
 
 func TestStringify(t *testing.T) {
+	t.Parallel()
 	var nilPointer *string
 
 	var tests = []struct {
@@ -80,11 +81,12 @@ func TestStringify(t *testing.T) {
 }
 
 // Directly test the String() methods on various GitHub types. We don't do an
-// exaustive test of all the various field types, since TestStringify() above
+// exhaustive test of all the various field types, since TestStringify() above
 // takes care of that. Rather, we just make sure that Stringify() is being
 // used to build the strings, which we do by verifying that pointers are
 // stringified as their underlying value.
 func TestString(t *testing.T) {
+	t.Parallel()
 	var tests = []struct {
 		in  interface{}
 		out string
@@ -98,10 +100,10 @@ func TestString(t *testing.T) {
 		{Event{ID: String("1")}, `github.Event{ID:"1"}`},
 		{GistComment{ID: Int64(1)}, `github.GistComment{ID:1}`},
 		{GistFile{Size: Int(1)}, `github.GistFile{Size:1}`},
-		{Gist{ID: String("1")}, `github.Gist{ID:"1", Files:map[]}`},
+		{Gist{ID: String("1")}, `github.Gist{ID:"1"}`},
 		{GitObject{SHA: String("s")}, `github.GitObject{SHA:"s"}`},
 		{Gitignore{Name: String("n")}, `github.Gitignore{Name:"n"}`},
-		{Hook{ID: Int64(1)}, `github.Hook{ID:1, Config:map[]}`},
+		{Hook{ID: Int64(1)}, `github.Hook{ID:1}`},
 		{IssueComment{ID: Int64(1)}, `github.IssueComment{ID:1}`},
 		{Issue{Number: Int(1)}, `github.Issue{Number:1}`},
 		{Key{ID: Int64(1)}, `github.Key{ID:1}`},
@@ -127,9 +129,9 @@ func TestString(t *testing.T) {
 		{TreeEntry{SHA: String("s")}, `github.TreeEntry{SHA:"s"}`},
 		{Tree{SHA: String("s")}, `github.Tree{SHA:"s"}`},
 		{User{ID: Int64(1)}, `github.User{ID:1}`},
-		{WebHookAuthor{Name: String("n")}, `github.WebHookAuthor{Name:"n"}`},
-		{WebHookCommit{ID: String("1")}, `github.WebHookCommit{ID:"1"}`},
-		{WebHookPayload{Ref: String("r")}, `github.WebHookPayload{Ref:"r"}`},
+		{WebHookAuthor{Name: String("n")}, `github.CommitAuthor{Name:"n"}`},
+		{WebHookCommit{ID: String("1")}, `github.HeadCommit{ID:"1"}`},
+		{WebHookPayload{Ref: String("r")}, `github.PushEvent{Ref:"r"}`},
 	}
 
 	for i, tt := range tests {

@@ -10,13 +10,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"reflect"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 func TestInteractionsService_GetRestrictionsForRepo(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/repos/o/r/interaction-limits", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "GET")
@@ -24,57 +25,98 @@ func TestInteractionsService_GetRestrictionsForRepo(t *testing.T) {
 		fmt.Fprint(w, `{"origin":"repository"}`)
 	})
 
-	repoInteractions, _, err := client.Interactions.GetRestrictionsForRepo(context.Background(), "o", "r")
+	ctx := context.Background()
+	repoInteractions, _, err := client.Interactions.GetRestrictionsForRepo(ctx, "o", "r")
 	if err != nil {
 		t.Errorf("Interactions.GetRestrictionsForRepo returned error: %v", err)
 	}
 
 	want := &InteractionRestriction{Origin: String("repository")}
-	if !reflect.DeepEqual(repoInteractions, want) {
+	if !cmp.Equal(repoInteractions, want) {
 		t.Errorf("Interactions.GetRestrictionsForRepo returned %+v, want %+v", repoInteractions, want)
 	}
+
+	const methodName = "GetRestrictionsForRepo"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.Interactions.GetRestrictionsForRepo(ctx, "\n", "\n")
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Interactions.GetRestrictionsForRepo(ctx, "o", "r")
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestInteractionsService_UpdateRestrictionsForRepo(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	input := &InteractionRestriction{Limit: String("existing_users")}
 
 	mux.HandleFunc("/repos/o/r/interaction-limits", func(w http.ResponseWriter, r *http.Request) {
 		v := new(InteractionRestriction)
-		json.NewDecoder(r.Body).Decode(v)
+		assertNilError(t, json.NewDecoder(r.Body).Decode(v))
 
 		testMethod(t, r, "PUT")
 		testHeader(t, r, "Accept", mediaTypeInteractionRestrictionsPreview)
-		if !reflect.DeepEqual(v, input) {
+		if !cmp.Equal(v, input) {
 			t.Errorf("Request body = %+v, want %+v", v, input)
 		}
 		fmt.Fprint(w, `{"origin":"repository"}`)
 	})
 
-	repoInteractions, _, err := client.Interactions.UpdateRestrictionsForRepo(context.Background(), "o", "r", input.GetLimit())
+	ctx := context.Background()
+	repoInteractions, _, err := client.Interactions.UpdateRestrictionsForRepo(ctx, "o", "r", input.GetLimit())
 	if err != nil {
 		t.Errorf("Interactions.UpdateRestrictionsForRepo returned error: %v", err)
 	}
 
 	want := &InteractionRestriction{Origin: String("repository")}
-	if !reflect.DeepEqual(repoInteractions, want) {
+	if !cmp.Equal(repoInteractions, want) {
 		t.Errorf("Interactions.UpdateRestrictionsForRepo returned %+v, want %+v", repoInteractions, want)
 	}
+
+	const methodName = "UpdateRestrictionsForRepo"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.Interactions.UpdateRestrictionsForRepo(ctx, "\n", "\n", input.GetLimit())
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Interactions.UpdateRestrictionsForRepo(ctx, "o", "r", input.GetLimit())
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestInteractionsService_RemoveRestrictionsFromRepo(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/repos/o/r/interaction-limits", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "DELETE")
 		testHeader(t, r, "Accept", mediaTypeInteractionRestrictionsPreview)
 	})
 
-	_, err := client.Interactions.RemoveRestrictionsFromRepo(context.Background(), "o", "r")
+	ctx := context.Background()
+	_, err := client.Interactions.RemoveRestrictionsFromRepo(ctx, "o", "r")
 	if err != nil {
 		t.Errorf("Interactions.RemoveRestrictionsFromRepo returned error: %v", err)
 	}
+
+	const methodName = "RemoveRestrictionsFromRepo"
+	testBadOptions(t, methodName, func() (err error) {
+		_, err = client.Interactions.RemoveRestrictionsFromRepo(ctx, "\n", "\n")
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		return client.Interactions.RemoveRestrictionsFromRepo(ctx, "o", "r")
+	})
 }

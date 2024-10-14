@@ -10,14 +10,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"reflect"
 	"testing"
-	"time"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 func TestAdminService_UpdateUserLDAPMapping(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	input := &UserLDAPMapping{
 		LDAPDN: String("uid=asdf,ou=users,dc=github,dc=com"),
@@ -25,10 +25,10 @@ func TestAdminService_UpdateUserLDAPMapping(t *testing.T) {
 
 	mux.HandleFunc("/admin/ldap/users/u/mapping", func(w http.ResponseWriter, r *http.Request) {
 		v := new(UserLDAPMapping)
-		json.NewDecoder(r.Body).Decode(v)
+		assertNilError(t, json.NewDecoder(r.Body).Decode(v))
 
 		testMethod(t, r, "PATCH")
-		if !reflect.DeepEqual(v, input) {
+		if !cmp.Equal(v, input) {
 			t.Errorf("Request body = %+v, want %+v", v, input)
 		}
 		fmt.Fprint(w, `{"id":1,"ldap_dn":"uid=asdf,ou=users,dc=github,dc=com"}`)
@@ -44,41 +44,28 @@ func TestAdminService_UpdateUserLDAPMapping(t *testing.T) {
 		ID:     Int64(1),
 		LDAPDN: String("uid=asdf,ou=users,dc=github,dc=com"),
 	}
-	if !reflect.DeepEqual(mapping, want) {
+	if !cmp.Equal(mapping, want) {
 		t.Errorf("Admin.UpdateUserLDAPMapping returned %+v, want %+v", mapping, want)
 	}
 
-	// Test s.client.NewRequest failure
-	client.BaseURL.Path = ""
-	got, resp, err := client.Admin.UpdateUserLDAPMapping(ctx, "u", input)
-	if got != nil {
-		t.Errorf("client.BaseURL.Path='' UpdateUserLDAPMapping = %#v, want nil", got)
-	}
-	if resp != nil {
-		t.Errorf("client.BaseURL.Path='' UpdateUserLDAPMapping resp = %#v, want nil", resp)
-	}
-	if err == nil {
-		t.Error("client.BaseURL.Path='' UpdateUserLDAPMapping err = nil, want error")
-	}
+	const methodName = "UpdateUserLDAPMapping"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.Admin.UpdateUserLDAPMapping(ctx, "\n", input)
+		return err
+	})
 
-	// Test s.client.Do failure
-	client.BaseURL.Path = "/api-v3/"
-	client.rateLimits[0].Reset.Time = time.Now().Add(10 * time.Minute)
-	got, resp, err = client.Admin.UpdateUserLDAPMapping(ctx, "u", input)
-	if got != nil {
-		t.Errorf("rate.Reset.Time > now UpdateUserLDAPMapping = %#v, want nil", got)
-	}
-	if want := http.StatusForbidden; resp == nil || resp.Response.StatusCode != want {
-		t.Errorf("rate.Reset.Time > now UpdateUserLDAPMapping resp = %#v, want StatusCode=%v", resp.Response, want)
-	}
-	if err == nil {
-		t.Error("rate.Reset.Time > now UpdateUserLDAPMapping err = nil, want error")
-	}
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Admin.UpdateUserLDAPMapping(ctx, "u", input)
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestAdminService_UpdateTeamLDAPMapping(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	input := &TeamLDAPMapping{
 		LDAPDN: String("cn=Enterprise Ops,ou=teams,dc=github,dc=com"),
@@ -86,10 +73,10 @@ func TestAdminService_UpdateTeamLDAPMapping(t *testing.T) {
 
 	mux.HandleFunc("/admin/ldap/teams/1/mapping", func(w http.ResponseWriter, r *http.Request) {
 		v := new(TeamLDAPMapping)
-		json.NewDecoder(r.Body).Decode(v)
+		assertNilError(t, json.NewDecoder(r.Body).Decode(v))
 
 		testMethod(t, r, "PATCH")
-		if !reflect.DeepEqual(v, input) {
+		if !cmp.Equal(v, input) {
 			t.Errorf("Request body = %+v, want %+v", v, input)
 		}
 		fmt.Fprint(w, `{"id":1,"ldap_dn":"cn=Enterprise Ops,ou=teams,dc=github,dc=com"}`)
@@ -105,39 +92,27 @@ func TestAdminService_UpdateTeamLDAPMapping(t *testing.T) {
 		ID:     Int64(1),
 		LDAPDN: String("cn=Enterprise Ops,ou=teams,dc=github,dc=com"),
 	}
-	if !reflect.DeepEqual(mapping, want) {
+	if !cmp.Equal(mapping, want) {
 		t.Errorf("Admin.UpdateTeamLDAPMapping returned %+v, want %+v", mapping, want)
 	}
 
-	// Test s.client.NewRequest failure
-	client.BaseURL.Path = ""
-	got, resp, err := client.Admin.UpdateTeamLDAPMapping(ctx, 1, input)
-	if got != nil {
-		t.Errorf("client.BaseURL.Path='' UpdateTeamLDAPMapping = %#v, want nil", got)
-	}
-	if resp != nil {
-		t.Errorf("client.BaseURL.Path='' UpdateTeamLDAPMapping resp = %#v, want nil", resp)
-	}
-	if err == nil {
-		t.Error("client.BaseURL.Path='' UpdateTeamLDAPMapping err = nil, want error")
-	}
+	const methodName = "UpdateTeamLDAPMapping"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.Admin.UpdateTeamLDAPMapping(ctx, -1, input)
+		return err
+	})
 
-	// Test s.client.Do failure
-	client.BaseURL.Path = "/api-v3/"
-	client.rateLimits[0].Reset.Time = time.Now().Add(10 * time.Minute)
-	got, resp, err = client.Admin.UpdateTeamLDAPMapping(ctx, 1, input)
-	if got != nil {
-		t.Errorf("rate.Reset.Time > now UpdateTeamLDAPMapping = %#v, want nil", got)
-	}
-	if want := http.StatusForbidden; resp == nil || resp.Response.StatusCode != want {
-		t.Errorf("rate.Reset.Time > now UpdateTeamLDAPMapping resp = %#v, want StatusCode=%v", resp.Response, want)
-	}
-	if err == nil {
-		t.Error("rate.Reset.Time > now UpdateTeamLDAPMapping err = nil, want error")
-	}
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Admin.UpdateTeamLDAPMapping(ctx, 1, input)
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestAdminService_TeamLDAPMapping_String(t *testing.T) {
+	t.Parallel()
 	v := &TeamLDAPMapping{
 		ID:              Int64(1),
 		LDAPDN:          String("a"),
@@ -158,6 +133,7 @@ func TestAdminService_TeamLDAPMapping_String(t *testing.T) {
 }
 
 func TestAdminService_UserLDAPMapping_String(t *testing.T) {
+	t.Parallel()
 	v := &UserLDAPMapping{
 		ID:                Int64(1),
 		LDAPDN:            String("a"),
@@ -182,4 +158,117 @@ func TestAdminService_UserLDAPMapping_String(t *testing.T) {
 	if got := v.String(); got != want {
 		t.Errorf("UserLDAPMapping.String = `%v`, want `%v`", got, want)
 	}
+}
+
+func TestTeamLDAPMapping_Marshal(t *testing.T) {
+	t.Parallel()
+	testJSONMarshal(t, &TeamLDAPMapping{}, "{}")
+
+	u := &TeamLDAPMapping{
+		ID:              Int64(1),
+		LDAPDN:          String("ldapdn"),
+		URL:             String("u"),
+		Name:            String("n"),
+		Slug:            String("s"),
+		Description:     String("d"),
+		Privacy:         String("p"),
+		Permission:      String("per"),
+		MembersURL:      String("mu"),
+		RepositoriesURL: String("ru"),
+	}
+
+	want := `{
+		"id": 1,
+		"ldap_dn": "ldapdn",
+		"url": "u",
+		"name": "n",
+		"slug": "s",
+		"description": "d",
+		"privacy": "p",
+		"permission": "per",
+		"members_url": "mu",
+		"repositories_url": "ru"
+	}`
+
+	testJSONMarshal(t, u, want)
+}
+
+func TestUserLDAPMapping_Marshal(t *testing.T) {
+	t.Parallel()
+	testJSONMarshal(t, &UserLDAPMapping{}, "{}")
+
+	u := &UserLDAPMapping{
+		ID:                Int64(1),
+		LDAPDN:            String("ldapdn"),
+		Login:             String("l"),
+		AvatarURL:         String("au"),
+		GravatarID:        String("gi"),
+		Type:              String("t"),
+		SiteAdmin:         Bool(true),
+		URL:               String("u"),
+		EventsURL:         String("eu"),
+		FollowingURL:      String("fu"),
+		FollowersURL:      String("fu"),
+		GistsURL:          String("gu"),
+		OrganizationsURL:  String("ou"),
+		ReceivedEventsURL: String("reu"),
+		ReposURL:          String("ru"),
+		StarredURL:        String("su"),
+		SubscriptionsURL:  String("subu"),
+	}
+
+	want := `{
+		"id": 1,
+		"ldap_dn": "ldapdn",
+		"login": "l",
+		"avatar_url": "au",
+		"gravatar_id": "gi",
+		"type": "t",
+		"site_admin": true,
+		"url": "u",
+		"events_url": "eu",
+		"following_url": "fu",
+		"followers_url": "fu",
+		"gists_url": "gu",
+		"organizations_url": "ou",
+		"received_events_url": "reu",
+		"repos_url": "ru",
+		"starred_url": "su",
+		"subscriptions_url": "subu"
+	}`
+
+	testJSONMarshal(t, u, want)
+}
+
+func TestEnterprise_Marshal(t *testing.T) {
+	t.Parallel()
+	testJSONMarshal(t, &Enterprise{}, "{}")
+
+	u := &Enterprise{
+		ID:          Int(1),
+		Slug:        String("s"),
+		Name:        String("n"),
+		NodeID:      String("nid"),
+		AvatarURL:   String("au"),
+		Description: String("d"),
+		WebsiteURL:  String("wu"),
+		HTMLURL:     String("hu"),
+		CreatedAt:   &Timestamp{referenceTime},
+		UpdatedAt:   &Timestamp{referenceTime},
+	}
+
+	want := `{
+		"id": 1,
+		"slug": "s",
+		"name": "n",
+		"node_id": "nid",
+		"avatar_url": "au",
+		"description": "d",
+		"website_url": "wu",
+		"html_url": "hu",
+		"created_at": ` + referenceTimeStr + `,
+		"updated_at": ` + referenceTimeStr + `
+	}`
+
+	testJSONMarshal(t, u, want)
 }

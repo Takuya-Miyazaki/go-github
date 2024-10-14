@@ -3,7 +3,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// +build integration
+//go:build integration
 
 package integration
 
@@ -14,8 +14,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/google/go-github/v32/github"
-	"golang.org/x/oauth2"
+	"github.com/google/go-github/v66/github"
 )
 
 var (
@@ -29,26 +28,12 @@ var (
 func init() {
 	token := os.Getenv("GITHUB_AUTH_TOKEN")
 	if token == "" {
-		print("!!! No OAuth token. Some tests won't run. !!!\n\n")
+		fmt.Print("!!! No OAuth token. Some tests won't run. !!!\n\n")
 		client = github.NewClient(nil)
 	} else {
-		tc := oauth2.NewClient(context.Background(), oauth2.StaticTokenSource(
-			&oauth2.Token{AccessToken: token},
-		))
-		client = github.NewClient(tc)
+		client = github.NewClient(nil).WithAuthToken(token)
 		auth = true
 	}
-
-	// Environment variables required for Authorization integration tests
-	vars := []string{envKeyGitHubUsername, envKeyGitHubPassword, envKeyClientID, envKeyClientSecret}
-
-	for _, v := range vars {
-		value := os.Getenv(v)
-		if value == "" {
-			print("!!! " + fmt.Sprintf(msgEnvMissing, v) + " !!!\n\n")
-		}
-	}
-
 }
 
 func checkAuth(name string) bool {
@@ -59,6 +44,18 @@ func checkAuth(name string) bool {
 }
 
 func createRandomTestRepository(owner string, autoinit bool) (*github.Repository, error) {
+	// determine the owner to use if one wasn't specified
+	if owner == "" {
+		owner = os.Getenv("GITHUB_OWNER")
+		if owner == "" {
+			me, _, err := client.Users.Get(context.Background(), "")
+			if err != nil {
+				return nil, err
+			}
+			owner = *me.Login
+		}
+	}
+
 	// create random repo name that does not currently exist
 	var repoName string
 	for {
@@ -75,7 +72,14 @@ func createRandomTestRepository(owner string, autoinit bool) (*github.Repository
 	}
 
 	// create the repository
-	repo, _, err := client.Repositories.Create(context.Background(), "", &github.Repository{Name: github.String(repoName), AutoInit: github.Bool(autoinit)})
+	repo, _, err := client.Repositories.Create(
+		context.Background(),
+		owner,
+		&github.Repository{
+			Name:     github.String(repoName),
+			AutoInit: github.Bool(autoinit),
+		},
+	)
 	if err != nil {
 		return nil, err
 	}

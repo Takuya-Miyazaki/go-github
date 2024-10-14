@@ -12,16 +12,17 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/google/go-github/v32/github"
+	"github.com/google/go-github/v66/github"
 )
 
-func ExampleClient_Markdown() {
+func ExampleMarkdownService_Render() {
 	client := github.NewClient(nil)
 
 	input := "# heading #\n\nLink to issue #1"
 	opt := &github.MarkdownOptions{Mode: "gfm", Context: "google/go-github"}
 
-	output, _, err := client.Markdown(context.Background(), input, opt)
+	ctx := context.Background()
+	output, _, err := client.Markdown.Render(ctx, input, opt)
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -32,7 +33,8 @@ func ExampleClient_Markdown() {
 func ExampleRepositoriesService_GetReadme() {
 	client := github.NewClient(nil)
 
-	readme, _, err := client.Repositories.GetReadme(context.Background(), "google", "go-github", nil)
+	ctx := context.Background()
+	readme, _, err := client.Repositories.GetReadme(ctx, "google", "go-github", nil)
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -47,13 +49,14 @@ func ExampleRepositoriesService_GetReadme() {
 	fmt.Printf("google/go-github README:\n%v\n", content)
 }
 
-func ExampleRepositoriesService_List() {
+func ExampleRepositoriesService_ListByUser() {
 	client := github.NewClient(nil)
 
 	user := "willnorris"
-	opt := &github.RepositoryListOptions{Type: "owner", Sort: "updated", Direction: "desc"}
+	opt := &github.RepositoryListByUserOptions{Type: "owner", Sort: "updated", Direction: "desc"}
 
-	repos, _, err := client.Repositories.List(context.Background(), user, opt)
+	ctx := context.Background()
+	repos, _, err := client.Repositories.ListByUser(ctx, user, opt)
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -69,7 +72,7 @@ func ExampleRepositoriesService_CreateFile() {
 	// so you will need to modify the example to provide an oauth client to
 	// github.NewClient() instead of nil. See the following documentation for more
 	// information on how to authenticate with the client:
-	// https://godoc.org/github.com/google/go-github/github#hdr-Authentication
+	// https://pkg.go.dev/github.com/google/go-github/github#hdr-Authentication
 	client := github.NewClient(nil)
 
 	ctx := context.Background()
@@ -94,7 +97,8 @@ func ExampleUsersService_ListAll() {
 	client := github.NewClient(nil)
 	opts := &github.UserListOptions{}
 	for {
-		users, _, err := client.Users.ListAll(context.Background(), opts)
+		ctx := context.Background()
+		users, _, err := client.Users.ListAll(ctx, opts)
 		if err != nil {
 			log.Fatalf("error listing users: %v", err)
 		}
@@ -113,7 +117,7 @@ func ExamplePullRequestsService_Create() {
 	// so you will need to modify the example to provide an oauth client to
 	// github.NewClient() instead of nil. See the following documentation for more
 	// information on how to authenticate with the client:
-	// https://godoc.org/github.com/google/go-github/github#hdr-Authentication
+	// https://pkg.go.dev/github.com/google/go-github/github#hdr-Authentication
 	client := github.NewClient(nil)
 
 	newPR := &github.NewPullRequest{
@@ -124,7 +128,8 @@ func ExamplePullRequestsService_Create() {
 		MaintainerCanModify: github.Bool(true),
 	}
 
-	pr, _, err := client.PullRequests.Create(context.Background(), "myOrganization", "myRepository", newPR)
+	ctx := context.Background()
+	pr, _, err := client.PullRequests.Create(ctx, "myOrganization", "myRepository", newPR)
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -141,7 +146,7 @@ func ExampleTeamsService_ListTeams() {
 	// the example to provide an oauth client to github.NewClient() instead of nil.
 	// See the following documentation for more information on how to authenticate
 	// with the client:
-	// https://godoc.org/github.com/google/go-github/github#hdr-Authentication
+	// https://pkg.go.dev/github.com/google/go-github/github#hdr-Authentication
 	client := github.NewClient(nil)
 
 	teamName := "Developers team"

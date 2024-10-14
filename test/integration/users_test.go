@@ -3,7 +3,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// +build integration
+//go:build integration
 
 package integration
 
@@ -13,7 +13,7 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/google/go-github/v32/github"
+	"github.com/google/go-github/v66/github"
 )
 
 func TestUsers_Get(t *testing.T) {

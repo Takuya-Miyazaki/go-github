@@ -10,13 +10,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"reflect"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 func TestUsersService_ListEmails(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/user/emails", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "GET")
@@ -29,36 +30,47 @@ func TestUsersService_ListEmails(t *testing.T) {
 	})
 
 	opt := &ListOptions{Page: 2}
-	emails, _, err := client.Users.ListEmails(context.Background(), opt)
+	ctx := context.Background()
+	emails, _, err := client.Users.ListEmails(ctx, opt)
 	if err != nil {
 		t.Errorf("Users.ListEmails returned error: %v", err)
 	}
 
 	want := []*UserEmail{{Email: String("user@example.com"), Verified: Bool(false), Primary: Bool(true)}}
-	if !reflect.DeepEqual(emails, want) {
+	if !cmp.Equal(emails, want) {
 		t.Errorf("Users.ListEmails returned %+v, want %+v", emails, want)
 	}
+
+	const methodName = "ListEmails"
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Users.ListEmails(ctx, opt)
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestUsersService_AddEmails(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	input := []string{"new@example.com"}
 
 	mux.HandleFunc("/user/emails", func(w http.ResponseWriter, r *http.Request) {
 		var v []string
-		json.NewDecoder(r.Body).Decode(&v)
+		assertNilError(t, json.NewDecoder(r.Body).Decode(&v))
 
 		testMethod(t, r, "POST")
-		if !reflect.DeepEqual(v, input) {
+		if !cmp.Equal(v, input) {
 			t.Errorf("Request body = %+v, want %+v", v, input)
 		}
 
 		fmt.Fprint(w, `[{"email":"old@example.com"}, {"email":"new@example.com"}]`)
 	})
 
-	emails, _, err := client.Users.AddEmails(context.Background(), input)
+	ctx := context.Background()
+	emails, _, err := client.Users.AddEmails(ctx, input)
 	if err != nil {
 		t.Errorf("Users.AddEmails returned error: %v", err)
 	}
@@ -67,29 +79,109 @@ func TestUsersService_AddEmails(t *testing.T) {
 		{Email: String("old@example.com")},
 		{Email: String("new@example.com")},
 	}
-	if !reflect.DeepEqual(emails, want) {
+	if !cmp.Equal(emails, want) {
 		t.Errorf("Users.AddEmails returned %+v, want %+v", emails, want)
 	}
+
+	const methodName = "AddEmails"
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Users.AddEmails(ctx, input)
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestUsersService_DeleteEmails(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	input := []string{"user@example.com"}
 
 	mux.HandleFunc("/user/emails", func(w http.ResponseWriter, r *http.Request) {
 		var v []string
-		json.NewDecoder(r.Body).Decode(&v)
+		assertNilError(t, json.NewDecoder(r.Body).Decode(&v))
 
 		testMethod(t, r, "DELETE")
-		if !reflect.DeepEqual(v, input) {
+		if !cmp.Equal(v, input) {
 			t.Errorf("Request body = %+v, want %+v", v, input)
 		}
 	})
 
-	_, err := client.Users.DeleteEmails(context.Background(), input)
+	ctx := context.Background()
+	_, err := client.Users.DeleteEmails(ctx, input)
 	if err != nil {
 		t.Errorf("Users.DeleteEmails returned error: %v", err)
 	}
+
+	const methodName = "DeleteEmails"
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		return client.Users.DeleteEmails(ctx, input)
+	})
+}
+
+func TestUserEmail_Marshal(t *testing.T) {
+	t.Parallel()
+	testJSONMarshal(t, &UserEmail{}, "{}")
+
+	u := &UserEmail{
+		Email:      String("qwe@qwe.qwe"),
+		Primary:    Bool(false),
+		Verified:   Bool(true),
+		Visibility: String("yes"),
+	}
+
+	want := `{
+		"email": "qwe@qwe.qwe",
+		"primary": false,
+		"verified": true,
+		"visibility": "yes"
+	}`
+
+	testJSONMarshal(t, u, want)
+}
+
+func TestUsersService_SetEmailVisibility(t *testing.T) {
+	t.Parallel()
+	client, mux, _ := setup(t)
+
+	input := &UserEmail{Visibility: String("private")}
+
+	mux.HandleFunc("/user/email/visibility", func(w http.ResponseWriter, r *http.Request) {
+		v := new(UserEmail)
+		assertNilError(t, json.NewDecoder(r.Body).Decode(&v))
+
+		testMethod(t, r, "PATCH")
+		if !cmp.Equal(v, input) {
+			t.Errorf("Request body = %+v, want %+v", v, input)
+		}
+
+		fmt.Fprint(w, `[{
+			"email": "user@example.com",
+			"verified": false,
+			"primary": true,
+			"visibility": "private"
+		}]`)
+	})
+
+	ctx := context.Background()
+	emails, _, err := client.Users.SetEmailVisibility(ctx, "private")
+	if err != nil {
+		t.Errorf("Users.SetEmailVisibility returned error: %v", err)
+	}
+
+	want := []*UserEmail{{Email: String("user@example.com"), Verified: Bool(false), Primary: Bool(true), Visibility: String("private")}}
+	if !cmp.Equal(emails, want) {
+		t.Errorf("Users.SetEmailVisibility returned %+v, want %+v", emails, want)
+	}
+
+	const methodName = "SetEmailVisibility"
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Users.SetEmailVisibility(ctx, "private")
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }

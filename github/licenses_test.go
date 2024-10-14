@@ -9,11 +9,13 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"reflect"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
-func TestRepositoryLicense_marshal(t *testing.T) {
+func TestRepositoryLicense_Marshal(t *testing.T) {
+	t.Parallel()
 	testJSONMarshal(t, &RepositoryLicense{}, "{}")
 
 	rl := &RepositoryLicense{
@@ -73,7 +75,8 @@ func TestRepositoryLicense_marshal(t *testing.T) {
 	testJSONMarshal(t, rl, want)
 }
 
-func TestLicense_marshal(t *testing.T) {
+func TestLicense_Marshal(t *testing.T) {
+	t.Parallel()
 	testJSONMarshal(t, &License{}, "{}")
 
 	l := &License{
@@ -108,15 +111,16 @@ func TestLicense_marshal(t *testing.T) {
 }
 
 func TestLicensesService_List(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/licenses", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "GET")
 		fmt.Fprint(w, `[{"key":"mit","name":"MIT","spdx_id":"MIT","url":"https://api.github.com/licenses/mit","featured":true}]`)
 	})
 
-	licenses, _, err := client.Licenses.List(context.Background())
+	ctx := context.Background()
+	licenses, _, err := client.Licenses.List(ctx)
 	if err != nil {
 		t.Errorf("Licenses.List returned error: %v", err)
 	}
@@ -128,35 +132,60 @@ func TestLicensesService_List(t *testing.T) {
 		URL:      String("https://api.github.com/licenses/mit"),
 		Featured: Bool(true),
 	}}
-	if !reflect.DeepEqual(licenses, want) {
+	if !cmp.Equal(licenses, want) {
 		t.Errorf("Licenses.List returned %+v, want %+v", licenses, want)
 	}
+
+	const methodName = "List"
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Licenses.List(ctx)
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestLicensesService_Get(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/licenses/mit", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "GET")
 		fmt.Fprint(w, `{"key":"mit","name":"MIT"}`)
 	})
 
-	license, _, err := client.Licenses.Get(context.Background(), "mit")
+	ctx := context.Background()
+	license, _, err := client.Licenses.Get(ctx, "mit")
 	if err != nil {
 		t.Errorf("Licenses.Get returned error: %v", err)
 	}
 
 	want := &License{Key: String("mit"), Name: String("MIT")}
-	if !reflect.DeepEqual(license, want) {
+	if !cmp.Equal(license, want) {
 		t.Errorf("Licenses.Get returned %+v, want %+v", license, want)
 	}
+
+	const methodName = "Get"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.Licenses.Get(ctx, "\n")
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Licenses.Get(ctx, "mit")
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestLicensesService_Get_invalidTemplate(t *testing.T) {
-	client, _, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, _, _ := setup(t)
 
-	_, _, err := client.Licenses.Get(context.Background(), "%")
+	ctx := context.Background()
+	_, _, err := client.Licenses.Get(ctx, "%")
 	testURLParseError(t, err)
 }

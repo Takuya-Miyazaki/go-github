@@ -9,14 +9,120 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"reflect"
 	"testing"
-	"time"
+
+	"github.com/google/go-cmp/cmp"
 )
 
+func TestReviewersRequest_Marshal(t *testing.T) {
+	t.Parallel()
+	testJSONMarshal(t, &ReviewersRequest{}, "{}")
+
+	u := &ReviewersRequest{
+		NodeID:        String("n"),
+		Reviewers:     []string{"r"},
+		TeamReviewers: []string{"t"},
+	}
+
+	want := `{
+		"node_id": "n",
+		"reviewers": [
+			"r"
+		],
+		"team_reviewers" : [
+			"t"
+		]
+	}`
+
+	testJSONMarshal(t, u, want)
+}
+
+func TestReviewers_Marshal(t *testing.T) {
+	t.Parallel()
+	testJSONMarshal(t, &Reviewers{}, "{}")
+
+	u := &Reviewers{
+		Users: []*User{{
+			Login:       String("l"),
+			ID:          Int64(1),
+			AvatarURL:   String("a"),
+			GravatarID:  String("g"),
+			Name:        String("n"),
+			Company:     String("c"),
+			Blog:        String("b"),
+			Location:    String("l"),
+			Email:       String("e"),
+			Hireable:    Bool(true),
+			PublicRepos: Int(1),
+			Followers:   Int(1),
+			Following:   Int(1),
+			CreatedAt:   &Timestamp{referenceTime},
+			URL:         String("u"),
+		}},
+		Teams: []*Team{{
+			ID:              Int64(1),
+			NodeID:          String("node"),
+			Name:            String("n"),
+			Description:     String("d"),
+			URL:             String("u"),
+			Slug:            String("s"),
+			Permission:      String("p"),
+			Privacy:         String("priv"),
+			MembersCount:    Int(1),
+			ReposCount:      Int(1),
+			Organization:    nil,
+			MembersURL:      String("m"),
+			RepositoriesURL: String("r"),
+			Parent:          nil,
+			LDAPDN:          String("l"),
+		}},
+	}
+
+	want := `{
+		"users" : [
+			{
+				"login": "l",
+				"id": 1,
+				"avatar_url": "a",
+				"gravatar_id": "g",
+				"name": "n",
+				"company": "c",
+				"blog": "b",
+				"location": "l",
+				"email": "e",
+				"hireable": true,
+				"public_repos": 1,
+				"followers": 1,
+				"following": 1,
+				"created_at": ` + referenceTimeStr + `,
+				"url": "u"
+			}
+		],
+		"teams" : [
+			{
+				"id": 1,
+				"node_id": "node",
+				"name": "n",
+				"description": "d",
+				"url": "u",
+				"slug": "s",
+				"permission": "p",
+				"privacy": "priv",
+				"members_count": 1,
+				"repos_count": 1,
+				"members_url": "m",
+				"repositories_url": "r",
+				"ldap_dn": "l"
+			}
+		]
+	}`
+
+	testJSONMarshal(t, u, want)
+}
+
 func TestRequestReviewers(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/repos/o/r/pulls/1/requested_reviewers", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "POST")
@@ -31,41 +137,23 @@ func TestRequestReviewers(t *testing.T) {
 		t.Errorf("PullRequests.RequestReviewers returned error: %v", err)
 	}
 	want := &PullRequest{Number: Int(1)}
-	if !reflect.DeepEqual(got, want) {
+	if !cmp.Equal(got, want) {
 		t.Errorf("PullRequests.RequestReviewers returned %+v, want %+v", got, want)
 	}
 
-	// Test s.client.NewRequest failure
-	client.BaseURL.Path = ""
-	got, resp, err := client.PullRequests.RequestReviewers(ctx, "o", "r", 1, ReviewersRequest{Reviewers: []string{"octocat", "googlebot"}, TeamReviewers: []string{"justice-league", "injustice-league"}})
-	if got != nil {
-		t.Errorf("client.BaseURL.Path='' RequestReviewers = %#v, want nil", got)
-	}
-	if resp != nil {
-		t.Errorf("client.BaseURL.Path='' RequestReviewers resp = %#v, want nil", resp)
-	}
-	if err == nil {
-		t.Error("client.BaseURL.Path='' RequestReviewers err = nil, want error")
-	}
-
-	// Test s.client.Do failure
-	client.BaseURL.Path = "/api-v3/"
-	client.rateLimits[0].Reset.Time = time.Now().Add(10 * time.Minute)
-	got, resp, err = client.PullRequests.RequestReviewers(ctx, "o", "r", 1, ReviewersRequest{Reviewers: []string{"octocat", "googlebot"}, TeamReviewers: []string{"justice-league", "injustice-league"}})
-	if got != nil {
-		t.Errorf("rate.Reset.Time > now RequestReviewers = %#v, want nil", got)
-	}
-	if want := http.StatusForbidden; resp == nil || resp.Response.StatusCode != want {
-		t.Errorf("rate.Reset.Time > now RequestReviewers resp = %#v, want StatusCode=%v", resp.Response, want)
-	}
-	if err == nil {
-		t.Error("rate.Reset.Time > now RequestReviewers err = nil, want error")
-	}
+	const methodName = "RequestReviewers"
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.PullRequests.RequestReviewers(ctx, "o", "r", 1, ReviewersRequest{Reviewers: []string{"octocat", "googlebot"}, TeamReviewers: []string{"justice-league", "injustice-league"}})
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestRemoveReviewers(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/repos/o/r/pulls/1/requested_reviewers", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "DELETE")
@@ -78,20 +166,15 @@ func TestRemoveReviewers(t *testing.T) {
 		t.Errorf("PullRequests.RemoveReviewers returned error: %v", err)
 	}
 
-	// Test s.client.NewRequest failure
-	client.BaseURL.Path = ""
-	resp, err := client.PullRequests.RemoveReviewers(ctx, "o", "r", 1, ReviewersRequest{Reviewers: []string{"octocat", "googlebot"}, TeamReviewers: []string{"justice-league"}})
-	if resp != nil {
-		t.Errorf("client.BaseURL.Path='' RemoveReviewers resp = %#v, want nil", resp)
-	}
-	if err == nil {
-		t.Error("client.BaseURL.Path='' RemoveReviewers err = nil, want error")
-	}
+	const methodName = "RemoveReviewers"
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		return client.PullRequests.RemoveReviewers(ctx, "o", "r", 1, ReviewersRequest{Reviewers: []string{"octocat", "googlebot"}, TeamReviewers: []string{"justice-league"}})
+	})
 }
 
 func TestListReviewers(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/repos/o/r/pulls/1/requested_reviewers", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "GET")
@@ -118,41 +201,23 @@ func TestListReviewers(t *testing.T) {
 			},
 		},
 	}
-	if !reflect.DeepEqual(got, want) {
+	if !cmp.Equal(got, want) {
 		t.Errorf("PullRequests.ListReviewers returned %+v, want %+v", got, want)
 	}
 
-	// Test s.client.NewRequest failure
-	client.BaseURL.Path = ""
-	got, resp, err := client.PullRequests.ListReviewers(ctx, "o", "r", 1, nil)
-	if got != nil {
-		t.Errorf("client.BaseURL.Path='' ListReviewers = %#v, want nil", got)
-	}
-	if resp != nil {
-		t.Errorf("client.BaseURL.Path='' ListReviewers resp = %#v, want nil", resp)
-	}
-	if err == nil {
-		t.Error("client.BaseURL.Path='' ListReviewers err = nil, want error")
-	}
-
-	// Test s.client.Do failure
-	client.BaseURL.Path = "/api-v3/"
-	client.rateLimits[0].Reset.Time = time.Now().Add(10 * time.Minute)
-	got, resp, err = client.PullRequests.ListReviewers(ctx, "o", "r", 1, nil)
-	if got != nil {
-		t.Errorf("rate.Reset.Time > now ListReviewers = %#v, want nil", got)
-	}
-	if want := http.StatusForbidden; resp == nil || resp.Response.StatusCode != want {
-		t.Errorf("rate.Reset.Time > now ListReviewers resp = %#v, want StatusCode=%v", resp.Response, want)
-	}
-	if err == nil {
-		t.Error("rate.Reset.Time > now ListReviewers err = nil, want error")
-	}
+	const methodName = "ListReviewers"
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.PullRequests.ListReviewers(ctx, "o", "r", 1, nil)
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestListReviewers_withOptions(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/repos/o/r/pulls/1/requested_reviewers", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "GET")
@@ -162,15 +227,23 @@ func TestListReviewers_withOptions(t *testing.T) {
 		fmt.Fprint(w, `{}`)
 	})
 
-	_, _, err := client.PullRequests.ListReviewers(context.Background(), "o", "r", 1, &ListOptions{Page: 2})
+	ctx := context.Background()
+	_, _, err := client.PullRequests.ListReviewers(ctx, "o", "r", 1, &ListOptions{Page: 2})
 	if err != nil {
 		t.Errorf("PullRequests.ListReviewers returned error: %v", err)
 	}
 
-	// Test addOptions failure
-	_, _, err = client.PullRequests.ListReviewers(context.Background(), "\n", "\n", 1, &ListOptions{Page: 2})
-	if err == nil {
-		t.Error("bad options ListReviewers err = nil, want error")
-	}
+	const methodName = "ListReviewers"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.PullRequests.ListReviewers(ctx, "\n", "\n", 1, &ListOptions{Page: 2})
+		return err
+	})
 
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.PullRequests.ListReviewers(ctx, "o", "r", 1, &ListOptions{Page: 2})
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }

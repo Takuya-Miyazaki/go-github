@@ -10,13 +10,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"reflect"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 func TestInteractionsService_GetRestrictionsForOrgs(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/orgs/o/interaction-limits", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "GET")
@@ -24,57 +25,98 @@ func TestInteractionsService_GetRestrictionsForOrgs(t *testing.T) {
 		fmt.Fprint(w, `{"origin":"organization"}`)
 	})
 
-	organizationInteractions, _, err := client.Interactions.GetRestrictionsForOrg(context.Background(), "o")
+	ctx := context.Background()
+	organizationInteractions, _, err := client.Interactions.GetRestrictionsForOrg(ctx, "o")
 	if err != nil {
 		t.Errorf("Interactions.GetRestrictionsForOrg returned error: %v", err)
 	}
 
 	want := &InteractionRestriction{Origin: String("organization")}
-	if !reflect.DeepEqual(organizationInteractions, want) {
+	if !cmp.Equal(organizationInteractions, want) {
 		t.Errorf("Interactions.GetRestrictionsForOrg returned %+v, want %+v", organizationInteractions, want)
 	}
+
+	const methodName = "GetRestrictionsForOrg"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.Interactions.GetRestrictionsForOrg(ctx, "\n")
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Interactions.GetRestrictionsForOrg(ctx, "o")
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestInteractionsService_UpdateRestrictionsForOrg(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	input := &InteractionRestriction{Limit: String("existing_users")}
 
 	mux.HandleFunc("/orgs/o/interaction-limits", func(w http.ResponseWriter, r *http.Request) {
 		v := new(InteractionRestriction)
-		json.NewDecoder(r.Body).Decode(v)
+		assertNilError(t, json.NewDecoder(r.Body).Decode(v))
 
 		testMethod(t, r, "PUT")
 		testHeader(t, r, "Accept", mediaTypeInteractionRestrictionsPreview)
-		if !reflect.DeepEqual(v, input) {
+		if !cmp.Equal(v, input) {
 			t.Errorf("Request body = %+v, want %+v", v, input)
 		}
 		fmt.Fprint(w, `{"origin":"organization"}`)
 	})
 
-	organizationInteractions, _, err := client.Interactions.UpdateRestrictionsForOrg(context.Background(), "o", input.GetLimit())
+	ctx := context.Background()
+	organizationInteractions, _, err := client.Interactions.UpdateRestrictionsForOrg(ctx, "o", input.GetLimit())
 	if err != nil {
 		t.Errorf("Interactions.UpdateRestrictionsForOrg returned error: %v", err)
 	}
 
 	want := &InteractionRestriction{Origin: String("organization")}
-	if !reflect.DeepEqual(organizationInteractions, want) {
+	if !cmp.Equal(organizationInteractions, want) {
 		t.Errorf("Interactions.UpdateRestrictionsForOrg returned %+v, want %+v", organizationInteractions, want)
 	}
+
+	const methodName = "UpdateRestrictionsForOrg"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.Interactions.UpdateRestrictionsForOrg(ctx, "\n", input.GetLimit())
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Interactions.UpdateRestrictionsForOrg(ctx, "o", input.GetLimit())
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestInteractionsService_RemoveRestrictionsFromOrg(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/orgs/o/interaction-limits", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "DELETE")
 		testHeader(t, r, "Accept", mediaTypeInteractionRestrictionsPreview)
 	})
 
-	_, err := client.Interactions.RemoveRestrictionsFromOrg(context.Background(), "o")
+	ctx := context.Background()
+	_, err := client.Interactions.RemoveRestrictionsFromOrg(ctx, "o")
 	if err != nil {
 		t.Errorf("Interactions.RemoveRestrictionsFromOrg returned error: %v", err)
 	}
+
+	const methodName = "RemoveRestrictionsFromOrg"
+	testBadOptions(t, methodName, func() (err error) {
+		_, err = client.Interactions.RemoveRestrictionsFromOrg(ctx, "\n")
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		return client.Interactions.RemoveRestrictionsFromOrg(ctx, "o")
+	})
 }

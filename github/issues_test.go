@@ -10,14 +10,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"reflect"
 	"testing"
 	"time"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 func TestIssuesService_List_all(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/issues", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "GET")
@@ -40,20 +41,30 @@ func TestIssuesService_List_all(t *testing.T) {
 		time.Date(2002, time.February, 10, 15, 30, 0, 0, time.UTC),
 		ListOptions{Page: 1, PerPage: 2},
 	}
-	issues, _, err := client.Issues.List(context.Background(), true, opt)
+	ctx := context.Background()
+	issues, _, err := client.Issues.List(ctx, true, opt)
 	if err != nil {
 		t.Errorf("Issues.List returned error: %v", err)
 	}
 
 	want := []*Issue{{Number: Int(1)}}
-	if !reflect.DeepEqual(issues, want) {
+	if !cmp.Equal(issues, want) {
 		t.Errorf("Issues.List returned %+v, want %+v", issues, want)
 	}
+
+	const methodName = "List"
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Issues.List(ctx, true, opt)
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestIssuesService_List_owned(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/user/issues", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "GET")
@@ -61,20 +72,21 @@ func TestIssuesService_List_owned(t *testing.T) {
 		fmt.Fprint(w, `[{"number":1}]`)
 	})
 
-	issues, _, err := client.Issues.List(context.Background(), false, nil)
+	ctx := context.Background()
+	issues, _, err := client.Issues.List(ctx, false, nil)
 	if err != nil {
 		t.Errorf("Issues.List returned error: %v", err)
 	}
 
 	want := []*Issue{{Number: Int(1)}}
-	if !reflect.DeepEqual(issues, want) {
+	if !cmp.Equal(issues, want) {
 		t.Errorf("Issues.List returned %+v, want %+v", issues, want)
 	}
 }
 
 func TestIssuesService_ListByOrg(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/orgs/o/issues", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "GET")
@@ -82,28 +94,53 @@ func TestIssuesService_ListByOrg(t *testing.T) {
 		fmt.Fprint(w, `[{"number":1}]`)
 	})
 
-	issues, _, err := client.Issues.ListByOrg(context.Background(), "o", nil)
+	ctx := context.Background()
+	issues, _, err := client.Issues.ListByOrg(ctx, "o", nil)
 	if err != nil {
 		t.Errorf("Issues.ListByOrg returned error: %v", err)
 	}
 
 	want := []*Issue{{Number: Int(1)}}
-	if !reflect.DeepEqual(issues, want) {
+	if !cmp.Equal(issues, want) {
 		t.Errorf("Issues.List returned %+v, want %+v", issues, want)
 	}
+
+	const methodName = "ListByOrg"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.Issues.ListByOrg(ctx, "\n", nil)
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Issues.ListByOrg(ctx, "o", nil)
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestIssuesService_ListByOrg_invalidOrg(t *testing.T) {
-	client, _, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, _, _ := setup(t)
 
-	_, _, err := client.Issues.ListByOrg(context.Background(), "%", nil)
+	ctx := context.Background()
+	_, _, err := client.Issues.ListByOrg(ctx, "%", nil)
+	testURLParseError(t, err)
+}
+
+func TestIssuesService_ListByOrg_badOrg(t *testing.T) {
+	t.Parallel()
+	client, _, _ := setup(t)
+
+	ctx := context.Background()
+	_, _, err := client.Issues.ListByOrg(ctx, "\n", nil)
 	testURLParseError(t, err)
 }
 
 func TestIssuesService_ListByRepo(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/repos/o/r/issues", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "GET")
@@ -127,28 +164,44 @@ func TestIssuesService_ListByRepo(t *testing.T) {
 		time.Date(2002, time.February, 10, 15, 30, 0, 0, time.UTC),
 		ListOptions{0, 0},
 	}
-	issues, _, err := client.Issues.ListByRepo(context.Background(), "o", "r", opt)
+	ctx := context.Background()
+	issues, _, err := client.Issues.ListByRepo(ctx, "o", "r", opt)
 	if err != nil {
 		t.Errorf("Issues.ListByOrg returned error: %v", err)
 	}
 
 	want := []*Issue{{Number: Int(1)}}
-	if !reflect.DeepEqual(issues, want) {
+	if !cmp.Equal(issues, want) {
 		t.Errorf("Issues.List returned %+v, want %+v", issues, want)
 	}
+
+	const methodName = "ListByRepo"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.Issues.ListByRepo(ctx, "\n", "\n", opt)
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Issues.ListByRepo(ctx, "o", "r", opt)
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestIssuesService_ListByRepo_invalidOwner(t *testing.T) {
-	client, _, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, _, _ := setup(t)
 
-	_, _, err := client.Issues.ListByRepo(context.Background(), "%", "r", nil)
+	ctx := context.Background()
+	_, _, err := client.Issues.ListByRepo(ctx, "%", "r", nil)
 	testURLParseError(t, err)
 }
 
 func TestIssuesService_Get(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/repos/o/r/issues/1", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "GET")
@@ -156,7 +209,8 @@ func TestIssuesService_Get(t *testing.T) {
 		fmt.Fprint(w, `{"number":1, "author_association": "MEMBER","labels": [{"url": "u", "name": "n", "color": "c"}]}`)
 	})
 
-	issue, _, err := client.Issues.Get(context.Background(), "o", "r", 1)
+	ctx := context.Background()
+	issue, _, err := client.Issues.Get(ctx, "o", "r", 1)
 	if err != nil {
 		t.Errorf("Issues.Get returned error: %v", err)
 	}
@@ -170,22 +224,37 @@ func TestIssuesService_Get(t *testing.T) {
 			Color: String("c"),
 		}},
 	}
-	if !reflect.DeepEqual(issue, want) {
+	if !cmp.Equal(issue, want) {
 		t.Errorf("Issues.Get returned %+v, want %+v", issue, want)
 	}
+
+	const methodName = "Get"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.Issues.Get(ctx, "\n", "\n", 1)
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Issues.Get(ctx, "o", "r", 1)
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestIssuesService_Get_invalidOwner(t *testing.T) {
-	client, _, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, _, _ := setup(t)
 
-	_, _, err := client.Issues.Get(context.Background(), "%", "r", 1)
+	ctx := context.Background()
+	_, _, err := client.Issues.Get(ctx, "%", "r", 1)
 	testURLParseError(t, err)
 }
 
 func TestIssuesService_Create(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	input := &IssueRequest{
 		Title:    String("t"),
@@ -196,75 +265,142 @@ func TestIssuesService_Create(t *testing.T) {
 
 	mux.HandleFunc("/repos/o/r/issues", func(w http.ResponseWriter, r *http.Request) {
 		v := new(IssueRequest)
-		json.NewDecoder(r.Body).Decode(v)
+		assertNilError(t, json.NewDecoder(r.Body).Decode(v))
 
 		testMethod(t, r, "POST")
-		if !reflect.DeepEqual(v, input) {
+		if !cmp.Equal(v, input) {
 			t.Errorf("Request body = %+v, want %+v", v, input)
 		}
 
 		fmt.Fprint(w, `{"number":1}`)
 	})
 
-	issue, _, err := client.Issues.Create(context.Background(), "o", "r", input)
+	ctx := context.Background()
+	issue, _, err := client.Issues.Create(ctx, "o", "r", input)
 	if err != nil {
 		t.Errorf("Issues.Create returned error: %v", err)
 	}
 
 	want := &Issue{Number: Int(1)}
-	if !reflect.DeepEqual(issue, want) {
+	if !cmp.Equal(issue, want) {
 		t.Errorf("Issues.Create returned %+v, want %+v", issue, want)
 	}
+
+	const methodName = "Create"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.Issues.Create(ctx, "\n", "\n", input)
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Issues.Create(ctx, "o", "r", input)
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestIssuesService_Create_invalidOwner(t *testing.T) {
-	client, _, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, _, _ := setup(t)
 
-	_, _, err := client.Issues.Create(context.Background(), "%", "r", nil)
+	ctx := context.Background()
+	_, _, err := client.Issues.Create(ctx, "%", "r", nil)
 	testURLParseError(t, err)
 }
 
 func TestIssuesService_Edit(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	input := &IssueRequest{Title: String("t")}
 
 	mux.HandleFunc("/repos/o/r/issues/1", func(w http.ResponseWriter, r *http.Request) {
 		v := new(IssueRequest)
-		json.NewDecoder(r.Body).Decode(v)
+		assertNilError(t, json.NewDecoder(r.Body).Decode(v))
 
 		testMethod(t, r, "PATCH")
-		if !reflect.DeepEqual(v, input) {
+		if !cmp.Equal(v, input) {
 			t.Errorf("Request body = %+v, want %+v", v, input)
 		}
 
 		fmt.Fprint(w, `{"number":1}`)
 	})
 
-	issue, _, err := client.Issues.Edit(context.Background(), "o", "r", 1, input)
+	ctx := context.Background()
+	issue, _, err := client.Issues.Edit(ctx, "o", "r", 1, input)
 	if err != nil {
 		t.Errorf("Issues.Edit returned error: %v", err)
 	}
 
 	want := &Issue{Number: Int(1)}
-	if !reflect.DeepEqual(issue, want) {
+	if !cmp.Equal(issue, want) {
 		t.Errorf("Issues.Edit returned %+v, want %+v", issue, want)
 	}
+
+	const methodName = "Edit"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.Issues.Edit(ctx, "\n", "\n", -1, input)
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Issues.Edit(ctx, "o", "r", 1, input)
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
+}
+
+func TestIssuesService_RemoveMilestone(t *testing.T) {
+	t.Parallel()
+	client, mux, _ := setup(t)
+
+	mux.HandleFunc("/repos/o/r/issues/1", func(w http.ResponseWriter, r *http.Request) {
+		testMethod(t, r, "PATCH")
+		fmt.Fprint(w, `{"number":1}`)
+	})
+
+	ctx := context.Background()
+	issue, _, err := client.Issues.RemoveMilestone(ctx, "o", "r", 1)
+	if err != nil {
+		t.Errorf("Issues.RemoveMilestone returned error: %v", err)
+	}
+
+	want := &Issue{Number: Int(1)}
+	if !cmp.Equal(issue, want) {
+		t.Errorf("Issues.RemoveMilestone returned %+v, want %+v", issue, want)
+	}
+
+	const methodName = "RemoveMilestone"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.Issues.RemoveMilestone(ctx, "\n", "\n", -1)
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Issues.RemoveMilestone(ctx, "o", "r", 1)
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestIssuesService_Edit_invalidOwner(t *testing.T) {
-	client, _, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, _, _ := setup(t)
 
-	_, _, err := client.Issues.Edit(context.Background(), "%", "r", 1, nil)
+	ctx := context.Background()
+	_, _, err := client.Issues.Edit(ctx, "%", "r", 1, nil)
 	testURLParseError(t, err)
 }
 
 func TestIssuesService_Lock(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/repos/o/r/issues/1/lock", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "PUT")
@@ -272,14 +408,25 @@ func TestIssuesService_Lock(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	if _, err := client.Issues.Lock(context.Background(), "o", "r", 1, nil); err != nil {
+	ctx := context.Background()
+	if _, err := client.Issues.Lock(ctx, "o", "r", 1, nil); err != nil {
 		t.Errorf("Issues.Lock returned error: %v", err)
 	}
+
+	const methodName = "Lock"
+	testBadOptions(t, methodName, func() (err error) {
+		_, err = client.Issues.Lock(ctx, "\n", "\n", -1, nil)
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		return client.Issues.Lock(ctx, "o", "r", 1, nil)
+	})
 }
 
 func TestIssuesService_LockWithReason(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/repos/o/r/issues/1/lock", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "PUT")
@@ -288,14 +435,15 @@ func TestIssuesService_LockWithReason(t *testing.T) {
 
 	opt := &LockIssueOptions{LockReason: "off-topic"}
 
-	if _, err := client.Issues.Lock(context.Background(), "o", "r", 1, opt); err != nil {
+	ctx := context.Background()
+	if _, err := client.Issues.Lock(ctx, "o", "r", 1, opt); err != nil {
 		t.Errorf("Issues.Lock returned error: %v", err)
 	}
 }
 
 func TestIssuesService_Unlock(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/repos/o/r/issues/1/lock", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "DELETE")
@@ -303,12 +451,24 @@ func TestIssuesService_Unlock(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	if _, err := client.Issues.Unlock(context.Background(), "o", "r", 1); err != nil {
+	ctx := context.Background()
+	if _, err := client.Issues.Unlock(ctx, "o", "r", 1); err != nil {
 		t.Errorf("Issues.Unlock returned error: %v", err)
 	}
+
+	const methodName = "Unlock"
+	testBadOptions(t, methodName, func() (err error) {
+		_, err = client.Issues.Unlock(ctx, "\n", "\n", 1)
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		return client.Issues.Unlock(ctx, "o", "r", 1)
+	})
 }
 
 func TestIsPullRequest(t *testing.T) {
+	t.Parallel()
 	i := new(Issue)
 	if i.IsPullRequest() == true {
 		t.Errorf("expected i.IsPullRequest (%v) to return false, got true", i)
@@ -317,4 +477,170 @@ func TestIsPullRequest(t *testing.T) {
 	if i.IsPullRequest() == false {
 		t.Errorf("expected i.IsPullRequest (%v) to return true, got false", i)
 	}
+}
+
+func TestLockIssueOptions_Marshal(t *testing.T) {
+	t.Parallel()
+	testJSONMarshal(t, &LockIssueOptions{}, "{}")
+
+	u := &LockIssueOptions{
+		LockReason: "lr",
+	}
+
+	want := `{
+		"lock_reason": "lr"
+		}`
+
+	testJSONMarshal(t, u, want)
+}
+
+func TestPullRequestLinks_Marshal(t *testing.T) {
+	t.Parallel()
+	testJSONMarshal(t, &PullRequestLinks{}, "{}")
+
+	u := &PullRequestLinks{
+		URL:      String("url"),
+		HTMLURL:  String("hurl"),
+		DiffURL:  String("durl"),
+		PatchURL: String("purl"),
+		MergedAt: &Timestamp{referenceTime},
+	}
+
+	want := `{
+		"url": "url",
+		"html_url": "hurl",
+		"diff_url": "durl",
+		"patch_url": "purl",
+		"merged_at": ` + referenceTimeStr + `
+		}`
+
+	testJSONMarshal(t, u, want)
+}
+
+func TestIssueRequest_Marshal(t *testing.T) {
+	t.Parallel()
+	testJSONMarshal(t, &IssueRequest{}, "{}")
+
+	u := &IssueRequest{
+		Title:     String("url"),
+		Body:      String("url"),
+		Labels:    &[]string{"l"},
+		Assignee:  String("url"),
+		State:     String("url"),
+		Milestone: Int(1),
+		Assignees: &[]string{"a"},
+	}
+
+	want := `{
+		"title": "url",
+		"body": "url",
+		"labels": [
+			"l"
+		],
+		"assignee": "url",
+		"state": "url",
+		"milestone": 1,
+		"assignees": [
+			"a"
+		]
+	}`
+
+	testJSONMarshal(t, u, want)
+}
+
+func TestIssue_Marshal(t *testing.T) {
+	t.Parallel()
+	testJSONMarshal(t, &Issue{}, "{}")
+
+	u := &Issue{
+		ID:                Int64(1),
+		Number:            Int(1),
+		State:             String("s"),
+		Locked:            Bool(false),
+		Title:             String("title"),
+		Body:              String("body"),
+		AuthorAssociation: String("aa"),
+		User:              &User{ID: Int64(1)},
+		Labels:            []*Label{{ID: Int64(1)}},
+		Assignee:          &User{ID: Int64(1)},
+		Comments:          Int(1),
+		ClosedAt:          &Timestamp{referenceTime},
+		CreatedAt:         &Timestamp{referenceTime},
+		UpdatedAt:         &Timestamp{referenceTime},
+		ClosedBy:          &User{ID: Int64(1)},
+		URL:               String("url"),
+		HTMLURL:           String("hurl"),
+		CommentsURL:       String("curl"),
+		EventsURL:         String("eurl"),
+		LabelsURL:         String("lurl"),
+		RepositoryURL:     String("rurl"),
+		Milestone:         &Milestone{ID: Int64(1)},
+		PullRequestLinks:  &PullRequestLinks{URL: String("url")},
+		Repository:        &Repository{ID: Int64(1)},
+		Reactions:         &Reactions{TotalCount: Int(1)},
+		Assignees:         []*User{{ID: Int64(1)}},
+		NodeID:            String("nid"),
+		TextMatches:       []*TextMatch{{ObjectURL: String("ourl")}},
+		ActiveLockReason:  String("alr"),
+	}
+
+	want := `{
+		"id": 1,
+		"number": 1,
+		"state": "s",
+		"locked": false,
+		"title": "title",
+		"body": "body",
+		"author_association": "aa",
+		"user": {
+			"id": 1
+		},
+		"labels": [
+			{
+				"id": 1
+			}
+		],
+		"assignee": {
+			"id": 1
+		},
+		"comments": 1,
+		"closed_at": ` + referenceTimeStr + `,
+		"created_at": ` + referenceTimeStr + `,
+		"updated_at": ` + referenceTimeStr + `,
+		"closed_by": {
+			"id": 1
+		},
+		"url": "url",
+		"html_url": "hurl",
+		"comments_url": "curl",
+		"events_url": "eurl",
+		"labels_url": "lurl",
+		"repository_url": "rurl",
+		"milestone": {
+			"id": 1
+		},
+		"pull_request": {
+			"url": "url"
+		},
+		"repository": {
+			"id": 1
+		},
+		"reactions": {
+			"total_count": 1
+		},
+		"assignees": [
+			{
+				"id": 1
+			}
+		],
+		"node_id": "nid",
+		"text_matches": [
+			{
+				"object_url": "ourl"
+			}
+		],
+		"active_lock_reason": "alr"
+	}`
+
+	testJSONMarshal(t, u, want)
 }

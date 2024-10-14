@@ -3,7 +3,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// +build ignore
+//go:build ignore
 
 // gen-accessors generates accessor methods for structs with pointer fields.
 //
@@ -20,7 +20,6 @@ import (
 	"go/format"
 	"go/parser"
 	"go/token"
-	"io/ioutil"
 	"log"
 	"os"
 	"sort"
@@ -36,6 +35,7 @@ var (
 	verbose = flag.Bool("v", false, "Print verbose log messages")
 
 	sourceTmpl = template.Must(template.New("source").Parse(source))
+	testTmpl   = template.Must(template.New("test").Parse(test))
 
 	// skipStructMethods lists "struct.method" combos to skip.
 	skipStructMethods = map[string]bool{
@@ -49,6 +49,11 @@ var (
 	// skipStructs lists structs to skip.
 	skipStructs = map[string]bool{
 		"Client": true,
+	}
+
+	// whitelistSliceGetters lists "struct.field" to add getter method
+	whitelistSliceGetters = map[string]bool{
+		"PushEvent.Commits": true,
 	}
 )
 
@@ -114,8 +119,7 @@ func (t *templateData) processAST(f *ast.File) error {
 				continue
 			}
 			for _, field := range st.Fields.List {
-				se, ok := field.Type.(*ast.StarExpr)
-				if len(field.Names) == 0 || !ok {
+				if len(field.Names) == 0 {
 					continue
 				}
 
@@ -131,13 +135,31 @@ func (t *templateData) processAST(f *ast.File) error {
 					continue
 				}
 
+				se, ok := field.Type.(*ast.StarExpr)
+				if !ok {
+					switch x := field.Type.(type) {
+					case *ast.MapType:
+						t.addMapType(x, ts.Name.String(), fieldName.String(), false)
+						continue
+					case *ast.ArrayType:
+						if key := fmt.Sprintf("%v.%v", ts.Name, fieldName); whitelistSliceGetters[key] {
+							logf("Method %v is whitelist; adding getter method.", key)
+							t.addArrayType(x, ts.Name.String(), fieldName.String(), false)
+							continue
+						}
+					}
+
+					logf("Skipping field type %T, fieldName=%v", field.Type, fieldName)
+					continue
+				}
+
 				switch x := se.X.(type) {
 				case *ast.ArrayType:
-					t.addArrayType(x, ts.Name.String(), fieldName.String())
+					t.addArrayType(x, ts.Name.String(), fieldName.String(), true)
 				case *ast.Ident:
 					t.addIdent(x, ts.Name.String(), fieldName.String())
 				case *ast.MapType:
-					t.addMapType(x, ts.Name.String(), fieldName.String())
+					t.addMapType(x, ts.Name.String(), fieldName.String(), true)
 				case *ast.SelectorExpr:
 					t.addSelectorExpr(x, ts.Name.String(), fieldName.String())
 				default:
@@ -162,17 +184,36 @@ func (t *templateData) dump() error {
 	// Sort getters by ReceiverType.FieldName.
 	sort.Sort(byName(t.Getters))
 
-	var buf bytes.Buffer
-	if err := sourceTmpl.Execute(&buf, t); err != nil {
-		return err
-	}
-	clean, err := format.Source(buf.Bytes())
-	if err != nil {
-		return err
+	processTemplate := func(tmpl *template.Template, filename string) error {
+		var buf bytes.Buffer
+		if err := tmpl.Execute(&buf, t); err != nil {
+			return err
+		}
+		clean, err := format.Source(buf.Bytes())
+		if err != nil {
+			return fmt.Errorf("format.Source:\n%v\n%v", buf.String(), err)
+		}
+
+		logf("Writing %v...", filename)
+		if err := os.Chmod(filename, 0644); err != nil {
+			return fmt.Errorf("os.Chmod(%q, 0644): %v", filename, err)
+		}
+
+		if err := os.WriteFile(filename, clean, 0444); err != nil {
+			return err
+		}
+
+		if err := os.Chmod(filename, 0444); err != nil {
+			return fmt.Errorf("os.Chmod(%q, 0444): %v", filename, err)
+		}
+
+		return nil
 	}
 
-	logf("Writing %v...", t.filename)
-	return ioutil.WriteFile(t.filename, clean, 0644)
+	if err := processTemplate(sourceTmpl, t.filename); err != nil {
+		return err
+	}
+	return processTemplate(testTmpl, strings.ReplaceAll(t.filename, ".go", "_test.go"))
 }
 
 func newGetter(receiverType, fieldName, fieldType, zeroValue string, namedStruct bool) *getter {
@@ -187,17 +228,26 @@ func newGetter(receiverType, fieldName, fieldType, zeroValue string, namedStruct
 	}
 }
 
-func (t *templateData) addArrayType(x *ast.ArrayType, receiverType, fieldName string) {
+func (t *templateData) addArrayType(x *ast.ArrayType, receiverType, fieldName string, isAPointer bool) {
 	var eltType string
+	var ng *getter
 	switch elt := x.Elt.(type) {
 	case *ast.Ident:
 		eltType = elt.String()
+		ng = newGetter(receiverType, fieldName, "[]"+eltType, "nil", false)
+	case *ast.StarExpr:
+		ident, ok := elt.X.(*ast.Ident)
+		if !ok {
+			return
+		}
+		ng = newGetter(receiverType, fieldName, "[]*"+ident.String(), "nil", false)
 	default:
 		logf("addArrayType: type %q, field %q: unknown elt type: %T %+v; skipping.", receiverType, fieldName, elt, elt)
 		return
 	}
 
-	t.Getters = append(t.Getters, newGetter(receiverType, fieldName, "[]"+eltType, "nil", false))
+	ng.ArrayType = !isAPointer
+	t.Getters = append(t.Getters, ng)
 }
 
 func (t *templateData) addIdent(x *ast.Ident, receiverType, fieldName string) {
@@ -220,7 +270,7 @@ func (t *templateData) addIdent(x *ast.Ident, receiverType, fieldName string) {
 	t.Getters = append(t.Getters, newGetter(receiverType, fieldName, x.String(), zeroValue, namedStruct))
 }
 
-func (t *templateData) addMapType(x *ast.MapType, receiverType, fieldName string) {
+func (t *templateData) addMapType(x *ast.MapType, receiverType, fieldName string, isAPointer bool) {
 	var keyType string
 	switch key := x.Key.(type) {
 	case *ast.Ident:
@@ -241,7 +291,9 @@ func (t *templateData) addMapType(x *ast.MapType, receiverType, fieldName string
 
 	fieldType := fmt.Sprintf("map[%v]%v", keyType, valueType)
 	zeroValue := fmt.Sprintf("map[%v]%v{}", keyType, valueType)
-	t.Getters = append(t.Getters, newGetter(receiverType, fieldName, fieldType, zeroValue, false))
+	ng := newGetter(receiverType, fieldName, fieldType, zeroValue, false)
+	ng.MapType = !isAPointer
+	t.Getters = append(t.Getters, ng)
 }
 
 func (t *templateData) addSelectorExpr(x *ast.SelectorExpr, receiverType, fieldName string) {
@@ -288,6 +340,8 @@ type getter struct {
 	FieldType    string
 	ZeroValue    string
 	NamedStruct  bool // Getter for named struct.
+	MapType      bool
+	ArrayType    bool
 }
 
 type byName []*getter
@@ -302,6 +356,8 @@ const source = `// Copyright {{.Year}} The go-github AUTHORS. All rights reserve
 // license that can be found in the LICENSE file.
 
 // Code generated by gen-accessors; DO NOT EDIT.
+// Instead, please run "go generate ./..." as described here:
+// https://github.com/google/go-github/blob/master/CONTRIBUTING.md#submitting-a-patch
 
 package {{.Package}}
 {{with .Imports}}
@@ -320,6 +376,14 @@ func ({{.ReceiverVar}} *{{.ReceiverType}}) Get{{.FieldName}}() *{{.FieldType}} {
   }
   return {{.ReceiverVar}}.{{.FieldName}}
 }
+{{else if or .MapType .ArrayType }}
+// Get{{.FieldName}} returns the {{.FieldName}} {{if .MapType}}map{{else if .ArrayType }}slice{{end}} if it's non-nil, {{if .MapType}}an empty map{{else if .ArrayType }}nil{{end}} otherwise.
+func ({{.ReceiverVar}} *{{.ReceiverType}}) Get{{.FieldName}}() {{.FieldType}} {
+  if {{.ReceiverVar}} == nil || {{.ReceiverVar}}.{{.FieldName}} == nil {
+    return {{.ZeroValue}}
+  }
+  return {{.ReceiverVar}}.{{.FieldName}}
+}
 {{else}}
 // Get{{.FieldName}} returns the {{.FieldName}} field if it's non-nil, zero value otherwise.
 func ({{.ReceiverVar}} *{{.ReceiverType}}) Get{{.FieldName}}() {{.FieldType}} {
@@ -327,6 +391,59 @@ func ({{.ReceiverVar}} *{{.ReceiverType}}) Get{{.FieldName}}() {{.FieldType}} {
     return {{.ZeroValue}}
   }
   return *{{.ReceiverVar}}.{{.FieldName}}
+}
+{{end}}
+{{end}}
+`
+
+const test = `// Copyright {{.Year}} The go-github AUTHORS. All rights reserved.
+//
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+// Code generated by gen-accessors; DO NOT EDIT.
+// Instead, please run "go generate ./..." as described here:
+// https://github.com/google/go-github/blob/master/CONTRIBUTING.md#submitting-a-patch
+
+package {{.Package}}
+{{with .Imports}}
+import (
+  "testing"
+  {{range . -}}
+  "{{.}}"
+  {{end -}}
+)
+{{end}}
+{{range .Getters}}
+{{if .NamedStruct}}
+func Test{{.ReceiverType}}_Get{{.FieldName}}(tt *testing.T) {
+  tt.Parallel()
+  {{.ReceiverVar}} := &{{.ReceiverType}}{}
+  {{.ReceiverVar}}.Get{{.FieldName}}()
+  {{.ReceiverVar}} = nil
+  {{.ReceiverVar}}.Get{{.FieldName}}()
+}
+{{else if or .MapType .ArrayType}}
+func Test{{.ReceiverType}}_Get{{.FieldName}}(tt *testing.T) {
+  tt.Parallel()
+  zeroValue := {{.FieldType}}{}
+  {{.ReceiverVar}} := &{{.ReceiverType}}{ {{.FieldName}}: zeroValue }
+  {{.ReceiverVar}}.Get{{.FieldName}}()
+  {{.ReceiverVar}} = &{{.ReceiverType}}{}
+  {{.ReceiverVar}}.Get{{.FieldName}}()
+  {{.ReceiverVar}} = nil
+  {{.ReceiverVar}}.Get{{.FieldName}}()
+}
+{{else}}
+func Test{{.ReceiverType}}_Get{{.FieldName}}(tt *testing.T) {
+  tt.Parallel()
+  var zeroValue {{.FieldType}}
+  {{.ReceiverVar}} := &{{.ReceiverType}}{ {{.FieldName}}: &zeroValue }
+  {{.ReceiverVar}}.Get{{.FieldName}}()
+  {{.ReceiverVar}} = &{{.ReceiverType}}{}
+  {{.ReceiverVar}}.Get{{.FieldName}}()
+  {{.ReceiverVar}} = nil
+  {{.ReceiverVar}}.Get{{.FieldName}}()
 }
 {{end}}
 {{end}}

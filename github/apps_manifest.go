@@ -10,13 +10,10 @@ import (
 	"fmt"
 )
 
-const (
-	mediaTypeAppManifestPreview = "application/vnd.github.fury-preview+json"
-)
-
 // AppConfig describes the configuration of a GitHub App.
 type AppConfig struct {
 	ID            *int64     `json:"id,omitempty"`
+	Slug          *string    `json:"slug,omitempty"`
 	NodeID        *string    `json:"node_id,omitempty"`
 	Owner         *User      `json:"owner,omitempty"`
 	Name          *string    `json:"name,omitempty"`
@@ -34,14 +31,15 @@ type AppConfig struct {
 // CompleteAppManifest completes the App manifest handshake flow for the given
 // code.
 //
-// GitHub API docs: https://docs.github.com/en/rest/reference/apps/#create-a-github-app-from-a-manifest
+// GitHub API docs: https://docs.github.com/rest/apps/apps#create-a-github-app-from-a-manifest
+//
+//meta:operation POST /app-manifests/{code}/conversions
 func (s *AppsService) CompleteAppManifest(ctx context.Context, code string) (*AppConfig, *Response, error) {
 	u := fmt.Sprintf("app-manifests/%s/conversions", code)
 	req, err := s.client.NewRequest("POST", u, nil)
 	if err != nil {
 		return nil, nil, err
 	}
-	req.Header.Set("Accept", mediaTypeAppManifestPreview)
 
 	cfg := new(AppConfig)
 	resp, err := s.client.Do(ctx, req, cfg)

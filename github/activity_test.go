@@ -8,20 +8,20 @@ package github
 import (
 	"context"
 	"net/http"
-	"reflect"
 	"testing"
-	"time"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 func TestActivityService_List(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/feeds", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "GET")
 
 		w.WriteHeader(http.StatusOK)
-		w.Write(feedsJSON)
+		assertWrite(t, w, feedsJSON)
 	})
 
 	ctx := context.Background()
@@ -29,36 +29,18 @@ func TestActivityService_List(t *testing.T) {
 	if err != nil {
 		t.Errorf("Activity.ListFeeds returned error: %v", err)
 	}
-	if want := wantFeeds; !reflect.DeepEqual(got, want) {
+	if want := wantFeeds; !cmp.Equal(got, want) {
 		t.Errorf("Activity.ListFeeds = %+v, want %+v", got, want)
 	}
 
-	// Test s.client.NewRequest failure
-	client.BaseURL.Path = ""
-	got, resp, err := client.Activity.ListFeeds(ctx)
-	if got != nil {
-		t.Errorf("client.BaseURL.Path='' ListFeeds = %#v, want nil", got)
-	}
-	if resp != nil {
-		t.Errorf("client.BaseURL.Path='' ListFeeds resp = %#v, want nil", resp)
-	}
-	if err == nil {
-		t.Error("client.BaseURL.Path='' ListFeeds err = nil, want error")
-	}
-
-	// Test s.client.Do failure
-	client.BaseURL.Path = "/api-v3/"
-	client.rateLimits[0].Reset.Time = time.Now().Add(10 * time.Minute)
-	got, resp, err = client.Activity.ListFeeds(ctx)
-	if got != nil {
-		t.Errorf("rate.Reset.Time > now ListFeeds = %#v, want nil", got)
-	}
-	if want := http.StatusForbidden; resp == nil || resp.Response.StatusCode != want {
-		t.Errorf("rate.Reset.Time > now ListFeeds resp = %#v, want StatusCode=%v", resp.Response, want)
-	}
-	if err == nil {
-		t.Error("rate.Reset.Time > now ListFeeds err = nil, want error")
-	}
+	const methodName = "ListFeeds"
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Activity.ListFeeds(ctx)
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 var feedsJSON = []byte(`{
@@ -115,15 +97,7 @@ var wantFeeds = &Feeds{
 	CurrentUserOrganizationURLs: []string{
 		"https://github.com/organizations/github/defunkt.private.atom?token=abc123",
 	},
-	Links: &struct {
-		Timeline                 *FeedLink   `json:"timeline,omitempty"`
-		User                     *FeedLink   `json:"user,omitempty"`
-		CurrentUserPublic        *FeedLink   `json:"current_user_public,omitempty"`
-		CurrentUser              *FeedLink   `json:"current_user,omitempty"`
-		CurrentUserActor         *FeedLink   `json:"current_user_actor,omitempty"`
-		CurrentUserOrganization  *FeedLink   `json:"current_user_organization,omitempty"`
-		CurrentUserOrganizations []*FeedLink `json:"current_user_organizations,omitempty"`
-	}{
+	Links: &FeedLinks{
 		Timeline: &FeedLink{
 			HRef: String("https://github.com/timeline"),
 			Type: String("application/atom+xml"),
@@ -155,4 +129,185 @@ var wantFeeds = &Feeds{
 			},
 		},
 	},
+}
+
+func TestFeedLink_Marshal(t *testing.T) {
+	t.Parallel()
+	testJSONMarshal(t, &FeedLink{}, "{}")
+
+	u := &FeedLink{
+		HRef: String("h"),
+		Type: String("t"),
+	}
+
+	want := `{
+		"href": "h",
+		"type": "t"
+	}`
+
+	testJSONMarshal(t, u, want)
+}
+
+func TestFeeds_Marshal(t *testing.T) {
+	t.Parallel()
+	testJSONMarshal(t, &Feeds{}, "{}")
+
+	u := &Feeds{
+		TimelineURL:                 String("t"),
+		UserURL:                     String("u"),
+		CurrentUserPublicURL:        String("cupu"),
+		CurrentUserURL:              String("cuu"),
+		CurrentUserActorURL:         String("cuau"),
+		CurrentUserOrganizationURL:  String("cuou"),
+		CurrentUserOrganizationURLs: []string{"a"},
+		Links: &FeedLinks{
+			Timeline: &FeedLink{
+				HRef: String("h"),
+				Type: String("t"),
+			},
+			User: &FeedLink{
+				HRef: String("h"),
+				Type: String("t"),
+			},
+			CurrentUserPublic: &FeedLink{
+				HRef: String("h"),
+				Type: String("t"),
+			},
+			CurrentUser: &FeedLink{
+				HRef: String("h"),
+				Type: String("t"),
+			},
+			CurrentUserActor: &FeedLink{
+				HRef: String("h"),
+				Type: String("t"),
+			},
+			CurrentUserOrganization: &FeedLink{
+				HRef: String("h"),
+				Type: String("t"),
+			},
+			CurrentUserOrganizations: []*FeedLink{
+				{
+					HRef: String("h"),
+					Type: String("t"),
+				},
+			},
+		},
+	}
+
+	want := `{
+		"timeline_url": "t",
+		"user_url": "u",
+		"current_user_public_url": "cupu",
+		"current_user_url": "cuu",
+		"current_user_actor_url": "cuau",
+		"current_user_organization_url": "cuou",
+		"current_user_organization_urls": ["a"],
+		"_links": {
+			"timeline": {
+				"href": "h",
+				"type": "t"
+				},
+			"user": {
+				"href": "h",
+				"type": "t"
+			},
+			"current_user_public": {
+				"href": "h",
+				"type": "t"
+			},
+			"current_user": {
+				"href": "h",
+				"type": "t"
+			},
+			"current_user_actor": {
+				"href": "h",
+				"type": "t"
+			},
+			"current_user_organization": {
+				"href": "h",
+				"type": "t"
+			},
+			"current_user_organizations": [
+				{
+					"href": "h",
+					"type": "t"
+				}
+			]
+		}
+	}`
+
+	testJSONMarshal(t, u, want)
+}
+
+func TestFeedLinks_Marshal(t *testing.T) {
+	t.Parallel()
+	testJSONMarshal(t, &FeedLinks{}, "{}")
+
+	u := &FeedLinks{
+		Timeline: &FeedLink{
+			HRef: String("h"),
+			Type: String("t"),
+		},
+		User: &FeedLink{
+			HRef: String("h"),
+			Type: String("t"),
+		},
+		CurrentUserPublic: &FeedLink{
+			HRef: String("h"),
+			Type: String("t"),
+		},
+		CurrentUser: &FeedLink{
+			HRef: String("h"),
+			Type: String("t"),
+		},
+		CurrentUserActor: &FeedLink{
+			HRef: String("h"),
+			Type: String("t"),
+		},
+		CurrentUserOrganization: &FeedLink{
+			HRef: String("h"),
+			Type: String("t"),
+		},
+		CurrentUserOrganizations: []*FeedLink{
+			{
+				HRef: String("h"),
+				Type: String("t"),
+			},
+		},
+	}
+
+	want := `{
+		"timeline": {
+			"href": "h",
+			"type": "t"
+		},
+		"user": {
+			"href": "h",
+			"type": "t"
+		},
+		"current_user_public": {
+			"href": "h",
+			"type": "t"
+		},
+		"current_user": {
+			"href": "h",
+			"type": "t"
+		},
+		"current_user_actor": {
+			"href": "h",
+			"type": "t"
+		},
+		"current_user_organization": {
+			"href": "h",
+			"type": "t"
+		},
+		"current_user_organizations": [
+			{
+				"href": "h",
+				"type": "t"
+			}
+		]
+	}`
+
+	testJSONMarshal(t, u, want)
 }

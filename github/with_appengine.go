@@ -3,7 +3,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// +build appengine
+//go:build appengine
 
 // This file provides glue for making github work on App Engine.
 

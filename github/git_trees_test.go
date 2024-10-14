@@ -9,15 +9,37 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
-	"reflect"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
+func TestMarshalJSON_withNilContentAndSHA(t *testing.T) {
+	t.Parallel()
+	te := &TreeEntry{
+		Path: String("path"),
+		Mode: String("mode"),
+		Type: String("type"),
+		Size: Int(1),
+		URL:  String("url"),
+	}
+
+	got, err := te.MarshalJSON()
+	if err != nil {
+		t.Errorf("MarshalJSON: %v", err)
+	}
+
+	want := `{"sha":null,"path":"path","mode":"mode","type":"type"}`
+	if string(got) != want {
+		t.Errorf("MarshalJSON = %s, want %v", got, want)
+	}
+}
+
 func TestGitService_GetTree(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/repos/o/r/git/trees/s", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "GET")
@@ -28,7 +50,8 @@ func TestGitService_GetTree(t *testing.T) {
 			}`)
 	})
 
-	tree, _, err := client.Git.GetTree(context.Background(), "o", "r", "s", true)
+	ctx := context.Background()
+	tree, _, err := client.Git.GetTree(ctx, "o", "r", "s", true)
 	if err != nil {
 		t.Errorf("Git.GetTree returned error: %v", err)
 	}
@@ -42,22 +65,37 @@ func TestGitService_GetTree(t *testing.T) {
 		},
 		Truncated: Bool(true),
 	}
-	if !reflect.DeepEqual(*tree, want) {
+	if !cmp.Equal(*tree, want) {
 		t.Errorf("Tree.Get returned %+v, want %+v", *tree, want)
 	}
+
+	const methodName = "GetTree"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.Git.GetTree(ctx, "\n", "\n", "\n", true)
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Git.GetTree(ctx, "o", "r", "s", true)
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestGitService_GetTree_invalidOwner(t *testing.T) {
-	client, _, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, _, _ := setup(t)
 
-	_, _, err := client.Git.GetTree(context.Background(), "%", "%", "%", false)
+	ctx := context.Background()
+	_, _, err := client.Git.GetTree(ctx, "%", "%", "%", false)
 	testURLParseError(t, err)
 }
 
 func TestGitService_CreateTree(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	input := []*TreeEntry{
 		{
@@ -69,7 +107,7 @@ func TestGitService_CreateTree(t *testing.T) {
 	}
 
 	mux.HandleFunc("/repos/o/r/git/trees", func(w http.ResponseWriter, r *http.Request) {
-		got, err := ioutil.ReadAll(r.Body)
+		got, err := io.ReadAll(r.Body)
 		if err != nil {
 			t.Fatalf("unable to read body: %v", err)
 		}
@@ -95,7 +133,8 @@ func TestGitService_CreateTree(t *testing.T) {
 		}`)
 	})
 
-	tree, _, err := client.Git.CreateTree(context.Background(), "o", "r", "b", input)
+	ctx := context.Background()
+	tree, _, err := client.Git.CreateTree(ctx, "o", "r", "b", input)
 	if err != nil {
 		t.Errorf("Git.CreateTree returned error: %v", err)
 	}
@@ -114,14 +153,28 @@ func TestGitService_CreateTree(t *testing.T) {
 		nil,
 	}
 
-	if !reflect.DeepEqual(*tree, want) {
+	if !cmp.Equal(*tree, want) {
 		t.Errorf("Git.CreateTree returned %+v, want %+v", *tree, want)
 	}
+
+	const methodName = "CreateTree"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.Git.CreateTree(ctx, "\n", "\n", "\n", input)
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Git.CreateTree(ctx, "o", "r", "b", input)
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestGitService_CreateTree_Content(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	input := []*TreeEntry{
 		{
@@ -132,7 +185,7 @@ func TestGitService_CreateTree_Content(t *testing.T) {
 	}
 
 	mux.HandleFunc("/repos/o/r/git/trees", func(w http.ResponseWriter, r *http.Request) {
-		got, err := ioutil.ReadAll(r.Body)
+		got, err := io.ReadAll(r.Body)
 		if err != nil {
 			t.Fatalf("unable to read body: %v", err)
 		}
@@ -160,7 +213,8 @@ func TestGitService_CreateTree_Content(t *testing.T) {
 		}`)
 	})
 
-	tree, _, err := client.Git.CreateTree(context.Background(), "o", "r", "b", input)
+	ctx := context.Background()
+	tree, _, err := client.Git.CreateTree(ctx, "o", "r", "b", input)
 	if err != nil {
 		t.Errorf("Git.CreateTree returned error: %v", err)
 	}
@@ -180,14 +234,28 @@ func TestGitService_CreateTree_Content(t *testing.T) {
 		nil,
 	}
 
-	if !reflect.DeepEqual(*tree, want) {
+	if !cmp.Equal(*tree, want) {
 		t.Errorf("Git.CreateTree returned %+v, want %+v", *tree, want)
 	}
+
+	const methodName = "CreateTree"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.Git.CreateTree(ctx, "\n", "\n", "\n", input)
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Git.CreateTree(ctx, "o", "r", "b", input)
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestGitService_CreateTree_Delete(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	input := []*TreeEntry{
 		{
@@ -197,7 +265,7 @@ func TestGitService_CreateTree_Delete(t *testing.T) {
 	}
 
 	mux.HandleFunc("/repos/o/r/git/trees", func(w http.ResponseWriter, r *http.Request) {
-		got, err := ioutil.ReadAll(r.Body)
+		got, err := io.ReadAll(r.Body)
 		if err != nil {
 			t.Fatalf("unable to read body: %v", err)
 		}
@@ -225,7 +293,8 @@ func TestGitService_CreateTree_Delete(t *testing.T) {
 		}`)
 	})
 
-	tree, _, err := client.Git.CreateTree(context.Background(), "o", "r", "b", input)
+	ctx := context.Background()
+	tree, _, err := client.Git.CreateTree(ctx, "o", "r", "b", input)
 	if err != nil {
 		t.Errorf("Git.CreateTree returned error: %v", err)
 	}
@@ -245,15 +314,140 @@ func TestGitService_CreateTree_Delete(t *testing.T) {
 		nil,
 	}
 
-	if !reflect.DeepEqual(*tree, want) {
+	if !cmp.Equal(*tree, want) {
 		t.Errorf("Git.CreateTree returned %+v, want %+v", *tree, want)
 	}
+
+	const methodName = "CreateTree"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.Git.CreateTree(ctx, "\n", "\n", "\n", input)
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Git.CreateTree(ctx, "o", "r", "b", input)
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestGitService_CreateTree_invalidOwner(t *testing.T) {
-	client, _, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, _, _ := setup(t)
 
-	_, _, err := client.Git.CreateTree(context.Background(), "%", "%", "", nil)
+	ctx := context.Background()
+	_, _, err := client.Git.CreateTree(ctx, "%", "%", "", nil)
 	testURLParseError(t, err)
+}
+
+func TestTree_Marshal(t *testing.T) {
+	t.Parallel()
+	testJSONMarshal(t, &Tree{}, "{}")
+
+	u := &Tree{
+		SHA: String("sha"),
+		Entries: []*TreeEntry{
+			{
+				SHA:     String("sha"),
+				Path:    String("path"),
+				Mode:    String("mode"),
+				Type:    String("type"),
+				Size:    Int(1),
+				Content: String("content"),
+				URL:     String("url"),
+			},
+		},
+		Truncated: Bool(false),
+	}
+
+	want := `{
+		"sha": "sha",
+		"tree": [
+			{
+				"sha": "sha",
+				"path": "path",
+				"mode": "mode",
+				"type": "type",
+				"size": 1,
+				"content": "content",
+				"url": "url"
+			}
+		],
+		"truncated": false
+	}`
+
+	testJSONMarshal(t, u, want)
+}
+
+func TestTreeEntry_Marshal(t *testing.T) {
+	t.Parallel()
+	testJSONMarshal(t, &TreeEntry{}, "{}")
+
+	u := &TreeEntry{
+		SHA:     String("sha"),
+		Path:    String("path"),
+		Mode:    String("mode"),
+		Type:    String("type"),
+		Size:    Int(1),
+		Content: String("content"),
+		URL:     String("url"),
+	}
+
+	want := `{
+		"sha": "sha",
+		"path": "path",
+		"mode": "mode",
+		"type": "type",
+		"size": 1,
+		"content": "content",
+		"url": "url"
+	}`
+
+	testJSONMarshal(t, u, want)
+}
+
+func TestTreeEntryWithFileDelete_Marshal(t *testing.T) {
+	t.Parallel()
+	testJSONMarshal(t, &treeEntryWithFileDelete{}, "{}")
+
+	u := &treeEntryWithFileDelete{
+		SHA:     String("sha"),
+		Path:    String("path"),
+		Mode:    String("mode"),
+		Type:    String("type"),
+		Size:    Int(1),
+		Content: String("content"),
+		URL:     String("url"),
+	}
+
+	want := `{
+		"sha": "sha",
+		"path": "path",
+		"mode": "mode",
+		"type": "type",
+		"size": 1,
+		"content": "content",
+		"url": "url"
+	}`
+
+	testJSONMarshal(t, u, want)
+}
+
+func TestCreateTree_Marshal(t *testing.T) {
+	t.Parallel()
+	testJSONMarshal(t, &createTree{}, "{}")
+
+	u := &createTree{
+		BaseTree: "bt",
+		Entries:  []interface{}{"e"},
+	}
+
+	want := `{
+		"base_tree": "bt",
+		"tree": ["e"]
+	}`
+
+	testJSONMarshal(t, u, want)
 }

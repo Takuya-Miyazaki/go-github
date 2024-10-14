@@ -10,13 +10,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"reflect"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 func TestRepositoriesService_ListStatuses(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/repos/o/r/commits/r/statuses", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "GET")
@@ -25,64 +26,96 @@ func TestRepositoriesService_ListStatuses(t *testing.T) {
 	})
 
 	opt := &ListOptions{Page: 2}
-	statuses, _, err := client.Repositories.ListStatuses(context.Background(), "o", "r", "r", opt)
+	ctx := context.Background()
+	statuses, _, err := client.Repositories.ListStatuses(ctx, "o", "r", "r", opt)
 	if err != nil {
 		t.Errorf("Repositories.ListStatuses returned error: %v", err)
 	}
 
 	want := []*RepoStatus{{ID: Int64(1)}}
-	if !reflect.DeepEqual(statuses, want) {
+	if !cmp.Equal(statuses, want) {
 		t.Errorf("Repositories.ListStatuses returned %+v, want %+v", statuses, want)
 	}
+
+	const methodName = "ListStatuses"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.Repositories.ListStatuses(ctx, "\n", "\n", "\n", opt)
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Repositories.ListStatuses(ctx, "o", "r", "r", opt)
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestRepositoriesService_ListStatuses_invalidOwner(t *testing.T) {
-	client, _, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, _, _ := setup(t)
 
-	_, _, err := client.Repositories.ListStatuses(context.Background(), "%", "r", "r", nil)
+	ctx := context.Background()
+	_, _, err := client.Repositories.ListStatuses(ctx, "%", "r", "r", nil)
 	testURLParseError(t, err)
 }
 
 func TestRepositoriesService_CreateStatus(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	input := &RepoStatus{State: String("s"), TargetURL: String("t"), Description: String("d")}
 
 	mux.HandleFunc("/repos/o/r/statuses/r", func(w http.ResponseWriter, r *http.Request) {
 		v := new(RepoStatus)
-		json.NewDecoder(r.Body).Decode(v)
+		assertNilError(t, json.NewDecoder(r.Body).Decode(v))
 
 		testMethod(t, r, "POST")
-		if !reflect.DeepEqual(v, input) {
+		if !cmp.Equal(v, input) {
 			t.Errorf("Request body = %+v, want %+v", v, input)
 		}
 		fmt.Fprint(w, `{"id":1}`)
 	})
 
-	status, _, err := client.Repositories.CreateStatus(context.Background(), "o", "r", "r", input)
+	ctx := context.Background()
+	status, _, err := client.Repositories.CreateStatus(ctx, "o", "r", "r", input)
 	if err != nil {
 		t.Errorf("Repositories.CreateStatus returned error: %v", err)
 	}
 
 	want := &RepoStatus{ID: Int64(1)}
-	if !reflect.DeepEqual(status, want) {
+	if !cmp.Equal(status, want) {
 		t.Errorf("Repositories.CreateStatus returned %+v, want %+v", status, want)
 	}
+
+	const methodName = "CreateStatus"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.Repositories.CreateStatus(ctx, "\n", "\n", "\n", input)
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Repositories.CreateStatus(ctx, "o", "r", "r", input)
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestRepositoriesService_CreateStatus_invalidOwner(t *testing.T) {
-	client, _, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, _, _ := setup(t)
 
-	_, _, err := client.Repositories.CreateStatus(context.Background(), "%", "r", "r", nil)
+	ctx := context.Background()
+	_, _, err := client.Repositories.CreateStatus(ctx, "%", "r", "r", nil)
 	testURLParseError(t, err)
 }
 
 func TestRepositoriesService_GetCombinedStatus(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/repos/o/r/commits/r/status", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "GET")
@@ -91,13 +124,122 @@ func TestRepositoriesService_GetCombinedStatus(t *testing.T) {
 	})
 
 	opt := &ListOptions{Page: 2}
-	status, _, err := client.Repositories.GetCombinedStatus(context.Background(), "o", "r", "r", opt)
+	ctx := context.Background()
+	status, _, err := client.Repositories.GetCombinedStatus(ctx, "o", "r", "r", opt)
 	if err != nil {
 		t.Errorf("Repositories.GetCombinedStatus returned error: %v", err)
 	}
 
 	want := &CombinedStatus{State: String("success"), Statuses: []*RepoStatus{{ID: Int64(1)}}}
-	if !reflect.DeepEqual(status, want) {
+	if !cmp.Equal(status, want) {
 		t.Errorf("Repositories.GetCombinedStatus returned %+v, want %+v", status, want)
 	}
+
+	const methodName = "GetCombinedStatus"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.Repositories.GetCombinedStatus(ctx, "\n", "\n", "\n", opt)
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Repositories.GetCombinedStatus(ctx, "o", "r", "r", opt)
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
+}
+
+func TestRepoStatus_Marshal(t *testing.T) {
+	t.Parallel()
+	testJSONMarshal(t, &RepoStatus{}, "{}")
+
+	u := &RepoStatus{
+		ID:          Int64(1),
+		NodeID:      String("nid"),
+		URL:         String("url"),
+		State:       String("state"),
+		TargetURL:   String("turl"),
+		Description: String("desc"),
+		Context:     String("ctx"),
+		AvatarURL:   String("aurl"),
+		Creator:     &User{ID: Int64(1)},
+		CreatedAt:   &Timestamp{referenceTime},
+		UpdatedAt:   &Timestamp{referenceTime},
+	}
+
+	want := `{
+		"id": 1,
+		"node_id": "nid",
+		"url": "url",
+		"state": "state",
+		"target_url": "turl",
+		"description": "desc",
+		"context": "ctx",
+		"avatar_url": "aurl",
+		"creator": {
+			"id": 1
+		},
+		"created_at": ` + referenceTimeStr + `,
+		"updated_at": ` + referenceTimeStr + `
+	}`
+
+	testJSONMarshal(t, u, want)
+}
+
+func TestCombinedStatus_Marshal(t *testing.T) {
+	t.Parallel()
+	testJSONMarshal(t, &CombinedStatus{}, "{}")
+
+	u := &CombinedStatus{
+		State:      String("state"),
+		Name:       String("name"),
+		SHA:        String("sha"),
+		TotalCount: Int(1),
+		Statuses: []*RepoStatus{
+			{
+				ID:          Int64(1),
+				NodeID:      String("nid"),
+				URL:         String("url"),
+				State:       String("state"),
+				TargetURL:   String("turl"),
+				Description: String("desc"),
+				Context:     String("ctx"),
+				AvatarURL:   String("aurl"),
+				Creator:     &User{ID: Int64(1)},
+				CreatedAt:   &Timestamp{referenceTime},
+				UpdatedAt:   &Timestamp{referenceTime},
+			},
+		},
+		CommitURL:     String("curl"),
+		RepositoryURL: String("rurl"),
+	}
+
+	want := `{
+		"state": "state",
+		"name": "name",
+		"sha": "sha",
+		"total_count": 1,
+		"statuses": [
+			{
+				"id": 1,
+				"node_id": "nid",
+				"url": "url",
+				"state": "state",
+				"target_url": "turl",
+				"description": "desc",
+				"context": "ctx",
+				"avatar_url": "aurl",
+				"creator": {
+					"id": 1
+				},
+				"created_at": ` + referenceTimeStr + `,
+				"updated_at": ` + referenceTimeStr + `
+			}
+		],
+		"commit_url": "curl",
+		"repository_url": "rurl"
+	}`
+
+	testJSONMarshal(t, u, want)
 }

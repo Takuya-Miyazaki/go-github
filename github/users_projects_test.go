@@ -10,13 +10,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"reflect"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 func TestUsersService_ListProjects(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/users/u/projects", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "GET")
@@ -26,20 +27,35 @@ func TestUsersService_ListProjects(t *testing.T) {
 	})
 
 	opt := &ProjectListOptions{State: "open", ListOptions: ListOptions{Page: 2}}
-	projects, _, err := client.Users.ListProjects(context.Background(), "u", opt)
+	ctx := context.Background()
+	projects, _, err := client.Users.ListProjects(ctx, "u", opt)
 	if err != nil {
 		t.Errorf("Users.ListProjects returned error: %v", err)
 	}
 
 	want := []*Project{{ID: Int64(1)}}
-	if !reflect.DeepEqual(projects, want) {
+	if !cmp.Equal(projects, want) {
 		t.Errorf("Users.ListProjects returned %+v, want %+v", projects, want)
 	}
+
+	const methodName = "ListProjects"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.Users.ListProjects(ctx, "\n", opt)
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Users.ListProjects(ctx, "u", opt)
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestUsersService_CreateProject(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	input := &CreateUserProjectOptions{Name: "Project Name", Body: String("Project body.")}
 
@@ -48,21 +64,48 @@ func TestUsersService_CreateProject(t *testing.T) {
 		testHeader(t, r, "Accept", mediaTypeProjectsPreview)
 
 		v := &CreateUserProjectOptions{}
-		json.NewDecoder(r.Body).Decode(v)
-		if !reflect.DeepEqual(v, input) {
+		assertNilError(t, json.NewDecoder(r.Body).Decode(v))
+		if !cmp.Equal(v, input) {
 			t.Errorf("Request body = %+v, want %+v", v, input)
 		}
 
 		fmt.Fprint(w, `{"id":1}`)
 	})
 
-	project, _, err := client.Users.CreateProject(context.Background(), input)
+	ctx := context.Background()
+	project, _, err := client.Users.CreateProject(ctx, input)
 	if err != nil {
 		t.Errorf("Users.CreateProject returned error: %v", err)
 	}
 
 	want := &Project{ID: Int64(1)}
-	if !reflect.DeepEqual(project, want) {
+	if !cmp.Equal(project, want) {
 		t.Errorf("Users.CreateProject returned %+v, want %+v", project, want)
 	}
+
+	const methodName = "CreateProject"
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Users.CreateProject(ctx, input)
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
+}
+
+func TestCreateUserProjectOptions_Marshal(t *testing.T) {
+	t.Parallel()
+	testJSONMarshal(t, &CreateUserProjectOptions{}, `{}`)
+
+	c := CreateUserProjectOptions{
+		Name: "SomeProject",
+		Body: String("SomeProjectBody"),
+	}
+
+	want := `{
+			"name": "SomeProject",
+			"body": "SomeProjectBody"
+		}`
+
+	testJSONMarshal(t, c, want)
 }

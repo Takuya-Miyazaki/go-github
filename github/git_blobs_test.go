@@ -11,13 +11,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"reflect"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 func TestGitService_GetBlob(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/repos/o/r/git/blobs/s", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "GET")
@@ -28,7 +29,8 @@ func TestGitService_GetBlob(t *testing.T) {
 			}`)
 	})
 
-	blob, _, err := client.Git.GetBlob(context.Background(), "o", "r", "s")
+	ctx := context.Background()
+	blob, _, err := client.Git.GetBlob(ctx, "o", "r", "s")
 	if err != nil {
 		t.Errorf("Git.GetBlob returned error: %v", err)
 	}
@@ -38,22 +40,37 @@ func TestGitService_GetBlob(t *testing.T) {
 		Content: String("blob content"),
 	}
 
-	if !reflect.DeepEqual(*blob, want) {
+	if !cmp.Equal(*blob, want) {
 		t.Errorf("Blob.Get returned %+v, want %+v", *blob, want)
 	}
+
+	const methodName = "GetBlob"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.Git.GetBlob(ctx, "\n", "\n", "\n")
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Git.GetBlob(ctx, "o", "r", "s")
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestGitService_GetBlob_invalidOwner(t *testing.T) {
-	client, _, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, _, _ := setup(t)
 
-	_, _, err := client.Git.GetBlob(context.Background(), "%", "%", "%")
+	ctx := context.Background()
+	_, _, err := client.Git.GetBlob(ctx, "%", "%", "%")
 	testURLParseError(t, err)
 }
 
 func TestGitService_GetBlobRaw(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	mux.HandleFunc("/repos/o/r/git/blobs/s", func(w http.ResponseWriter, r *http.Request) {
 		testMethod(t, r, "GET")
@@ -62,7 +79,8 @@ func TestGitService_GetBlobRaw(t *testing.T) {
 		fmt.Fprint(w, `raw contents here`)
 	})
 
-	blob, _, err := client.Git.GetBlobRaw(context.Background(), "o", "r", "s")
+	ctx := context.Background()
+	blob, _, err := client.Git.GetBlobRaw(ctx, "o", "r", "s")
 	if err != nil {
 		t.Errorf("Git.GetBlobRaw returned error: %v", err)
 	}
@@ -71,11 +89,25 @@ func TestGitService_GetBlobRaw(t *testing.T) {
 	if !bytes.Equal(blob, want) {
 		t.Errorf("GetBlobRaw returned %q, want %q", blob, want)
 	}
+
+	const methodName = "GetBlobRaw"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.Git.GetBlobRaw(ctx, "\n", "\n", "\n")
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Git.GetBlobRaw(ctx, "o", "r", "s")
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestGitService_CreateBlob(t *testing.T) {
-	client, mux, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, mux, _ := setup(t)
 
 	input := &Blob{
 		SHA:      String("s"),
@@ -86,12 +118,12 @@ func TestGitService_CreateBlob(t *testing.T) {
 
 	mux.HandleFunc("/repos/o/r/git/blobs", func(w http.ResponseWriter, r *http.Request) {
 		v := new(Blob)
-		json.NewDecoder(r.Body).Decode(v)
+		assertNilError(t, json.NewDecoder(r.Body).Decode(v))
 
 		testMethod(t, r, "POST")
 
 		want := input
-		if !reflect.DeepEqual(v, want) {
+		if !cmp.Equal(v, want) {
 			t.Errorf("Git.CreateBlob request body: %+v, want %+v", v, want)
 		}
 
@@ -103,22 +135,63 @@ func TestGitService_CreateBlob(t *testing.T) {
 		}`)
 	})
 
-	blob, _, err := client.Git.CreateBlob(context.Background(), "o", "r", input)
+	ctx := context.Background()
+	blob, _, err := client.Git.CreateBlob(ctx, "o", "r", input)
 	if err != nil {
 		t.Errorf("Git.CreateBlob returned error: %v", err)
 	}
 
 	want := input
 
-	if !reflect.DeepEqual(*blob, *want) {
+	if !cmp.Equal(*blob, *want) {
 		t.Errorf("Git.CreateBlob returned %+v, want %+v", *blob, *want)
 	}
+
+	const methodName = "CreateBlob"
+	testBadOptions(t, methodName, func() (err error) {
+		_, _, err = client.Git.CreateBlob(ctx, "\n", "\n", input)
+		return err
+	})
+
+	testNewRequestAndDoFailure(t, methodName, client, func() (*Response, error) {
+		got, resp, err := client.Git.CreateBlob(ctx, "o", "r", input)
+		if got != nil {
+			t.Errorf("testNewRequestAndDoFailure %v = %#v, want nil", methodName, got)
+		}
+		return resp, err
+	})
 }
 
 func TestGitService_CreateBlob_invalidOwner(t *testing.T) {
-	client, _, _, teardown := setup()
-	defer teardown()
+	t.Parallel()
+	client, _, _ := setup(t)
 
-	_, _, err := client.Git.CreateBlob(context.Background(), "%", "%", &Blob{})
+	ctx := context.Background()
+	_, _, err := client.Git.CreateBlob(ctx, "%", "%", &Blob{})
 	testURLParseError(t, err)
+}
+
+func TestBlob_Marshal(t *testing.T) {
+	t.Parallel()
+	testJSONMarshal(t, &Blob{}, "{}")
+
+	u := &Blob{
+		Content:  String("content"),
+		Encoding: String("encoding"),
+		SHA:      String("sha"),
+		Size:     Int(1),
+		URL:      String("url"),
+		NodeID:   String("nid"),
+	}
+
+	want := `{
+		"content": "content",
+		"encoding": "encoding",
+		"sha": "sha",
+		"size": 1,
+		"url": "url",
+		"node_id": "nid"
+	}`
+
+	testJSONMarshal(t, u, want)
 }
